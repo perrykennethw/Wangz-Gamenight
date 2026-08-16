@@ -15,6 +15,8 @@ Open the local URL shown in the terminal. For a production check, run `npm run b
 
 Run `npm run typecheck` to verify the TypeScript source independently of the production build.
 
+Run `npm run test:game-packs` to verify Family Feud game-pack parsing and validation.
+
 `npm run dev` starts both the Vite app and the realtime room server. Friends on the same Wi-Fi network can open the Network URL printed by Vite, select **Join a room**, and enter the five-character code shown on the host screen.
 
 ## Multiplayer rooms
@@ -26,7 +28,9 @@ Run `npm run typecheck` to verify the TypeScript source independently of the pro
 
 ## Family Feud host controls
 
-- Click an answer or press `1`–`6` to reveal it.
+Before opening a room, the host can use **Build or edit** to author a question pack or upload a previously exported `.json` pack. Builder drafts save in that browser automatically; **Download JSON** creates a portable copy. The server validates and snapshots the selected pack when the room opens, so later draft edits do not change a game in progress.
+
+- Click an answer or press `1`–`8` to reveal it.
 - Click **Add strike** or press `X` to mark a strike.
 - Choose one face-off representative from each team, then press `Z` or use the buzzer panel to open and close their buzzers. The server rejects teammates outside the selected pair and accepts only the first representative’s buzz.
 - Award the round pot to either team; `A` awards team one and `B` awards team two.

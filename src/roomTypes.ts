@@ -3,11 +3,31 @@ export type RoomPhase = 'lobby' | 'playing'
 export type ParticipantRole = 'host' | 'player'
 export type BuzzerStatus = 'idle' | 'armed' | 'locked'
 
+export interface FeudAnswer {
+  id: string
+  label: string
+  points: number
+}
+
+export interface FeudQuestion {
+  id: string
+  prompt: string
+  answers: FeudAnswer[]
+}
+
+export interface FeudGamePack {
+  version: 1
+  kind: 'feud'
+  title: string
+  questions: FeudQuestion[]
+}
+
 export interface FeudGameConfig {
   kind: 'feud'
   teamOne: string
   teamTwo: string
   winningScore: number
+  pack: FeudGamePack
 }
 
 export interface SpinSolveGameConfig {

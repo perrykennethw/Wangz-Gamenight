@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { CSSProperties, FormEvent } from 'react'
-import { multiplierForRound, questions } from './gameData'
+import { FeudGameBuilder, saveFeudGamePackDraft } from './FeudGameBuilder'
+import { GamePackError, parseFeudGamePack } from './feudGamePack'
+import { multiplierForRound, starterFeudPack } from './gameData'
 import { roomClient } from './roomClient'
 import type {
   ChatMessage,
   FeudGameConfig,
+  FeudGamePack,
   GameConfig,
   RoomSnapshot,
   SpinSolveCommand,
@@ -14,7 +17,7 @@ import type {
   WheelSegment,
 } from './roomTypes'
 
-type Screen = 'home' | 'setup' | 'join' | 'host-lobby' | 'player-room' | 'game'
+type Screen = 'home' | 'setup' | 'builder' | 'join' | 'host-lobby' | 'player-room' | 'game'
 type TeamIndex = 0 | 1
 type ScoreAccent = 'gold' | 'coral'
 
@@ -39,7 +42,10 @@ interface HomeProps {
 
 interface SetupProps {
   kind: GameConfig['kind']
+  feudPack: FeudGamePack
   onBack: () => void
+  onBuildPack: () => void
+  onSelectPack: (pack: FeudGamePack) => void
   onStart: (config: GameConfig) => Promise<void>
 }
 
@@ -162,13 +168,14 @@ function Home({ onChooseFeud, onChooseSpinSolve, onJoin }: HomeProps) {
   )
 }
 
-function Setup({ kind, onBack, onStart }: SetupProps) {
+function Setup({ kind, feudPack, onBack, onBuildPack, onSelectPack, onStart }: SetupProps) {
   const [teamOne, setTeamOne] = useState('The Leftovers')
   const [teamTwo, setTeamTwo] = useState('The Plus Ones')
   const [winningScore, setWinningScore] = useState(300)
   const [rounds, setRounds] = useState(3)
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState('')
+  const [packError, setPackError] = useState('')
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -177,11 +184,21 @@ function Setup({ kind, onBack, onStart }: SetupProps) {
     try {
       const teams = { teamOne: teamOne.trim() || 'Team One', teamTwo: teamTwo.trim() || 'Team Two' }
       await onStart(kind === 'feud'
-        ? { kind: 'feud', ...teams, winningScore }
+        ? { kind: 'feud', ...teams, winningScore, pack: feudPack }
         : { kind: 'spin-solve', ...teams, rounds })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not create the room.')
       setIsCreating(false)
+    }
+  }
+
+  const importPack = async (file: File | undefined) => {
+    if (!file) return
+    setPackError('')
+    try {
+      onSelectPack(parseFeudGamePack(await file.text()))
+    } catch (cause) {
+      setPackError(cause instanceof GamePackError ? cause.issues.join(' ') : 'That game pack could not be opened.')
     }
   }
 
@@ -216,17 +233,39 @@ function Setup({ kind, onBack, onStart }: SetupProps) {
             <input value={teamTwo} onChange={(e) => setTeamTwo(e.target.value)} maxLength={24} />
           </label>
           {kind === 'feud' ? (
-            <fieldset>
-              <legend>Play to</legend>
-              <div className="score-options">
-                {[200, 300, 400].map((score) => (
-                  <label key={score} className={winningScore === score ? 'is-selected' : ''}>
-                    <input type="radio" name="winningScore" value={score} checked={winningScore === score} onChange={() => setWinningScore(score)} />
-                    <span>{score}</span> pts
+            <>
+              <fieldset className="pack-picker">
+                <legend>Question pack</legend>
+                <div className="pack-picker__card">
+                  <div><span>Loaded for tonight</span><strong>{feudPack.title}</strong><small>{feudPack.questions.length} questions · JSON game pack</small></div>
+                  <b>{String(feudPack.questions.length).padStart(2, '0')}</b>
+                </div>
+                <div className="pack-picker__actions">
+                  <button type="button" onClick={onBuildPack}>Build or edit</button>
+                  <label>
+                    <input
+                      className="sr-only"
+                      type="file"
+                      accept="application/json,.json"
+                      onChange={(event) => void importPack(event.target.files?.[0])}
+                    />
+                    Upload JSON
                   </label>
-                ))}
-              </div>
-            </fieldset>
+                </div>
+                {packError && <p className="form-error" role="alert">{packError}</p>}
+              </fieldset>
+              <fieldset>
+                <legend>Play to</legend>
+                <div className="score-options">
+                  {[200, 300, 400].map((score) => (
+                    <label key={score} className={winningScore === score ? 'is-selected' : ''}>
+                      <input type="radio" name="winningScore" value={score} checked={winningScore === score} onChange={() => setWinningScore(score)} />
+                      <span>{score}</span> pts
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+            </>
           ) : (
             <fieldset>
               <legend>Regular rounds</legend>
@@ -1145,10 +1184,10 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
   const [scores, setScores] = useState<[number, number]>([0, 0])
   const [winner, setWinner] = useState<Winner | null>(null)
 
-  const question = questions[questionIndex % questions.length]
+  const question = config.pack.questions[questionIndex % config.pack.questions.length]
   const multiplier = multiplierForRound(round)
   const roundPot = useMemo(
-    () => revealed.reduce((sum, index) => sum + question.answers[index][1] * multiplier, 0),
+    () => revealed.reduce((sum, index) => sum + question.answers[index].points * multiplier, 0),
     [revealed, question, multiplier],
   )
 
@@ -1168,7 +1207,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
       return
     }
     setRound((current) => current + 1)
-    setQuestionIndex((current) => (current + 1) % questions.length)
+    setQuestionIndex((current) => (current + 1) % config.pack.questions.length)
     setRevealed([])
     setStrikes(0)
   }
@@ -1183,7 +1222,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
 
   const newQuestion = () => {
     void roomClient.resetBuzzer()
-    setQuestionIndex((current) => (current + 1) % questions.length)
+    setQuestionIndex((current) => (current + 1) % config.pack.questions.length)
     setRevealed([])
     setStrikes(0)
   }
@@ -1219,7 +1258,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
 
       <section className="question-board">
         <header className="question-board__header">
-          <span>We asked 100 people…</span>
+          <span>{config.pack.title} · We asked 100 people…</span>
           <button onClick={newQuestion}>Skip question ↗</button>
         </header>
         {room.buzzer.status === 'armed' && (
@@ -1232,8 +1271,8 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
         )}
         <h1>{question.prompt}</h1>
         <div className="answers-grid">
-          {question.answers.map(([answer, points], index) => (
-            <AnswerTile key={answer} answer={answer} points={points} number={index + 1} revealed={revealed.includes(index)} onReveal={() => revealAnswer(index)} />
+          {question.answers.map((answer, index) => (
+            <AnswerTile key={answer.id} answer={answer.label} points={answer.points} number={index + 1} revealed={revealed.includes(index)} onReveal={() => revealAnswer(index)} />
           ))}
         </div>
       </section>
@@ -1259,7 +1298,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
         </div>
       </section>
 
-      <footer className="game-help">Host shortcuts: <kbd>Z</kbd> opens/closes buzzer · <kbd>1</kbd>–<kbd>6</kbd> reveal answers · <kbd>X</kbd> adds a strike · first team to {config.winningScore} wins</footer>
+      <footer className="game-help">Host shortcuts: <kbd>Z</kbd> opens/closes buzzer · <kbd>1</kbd>–<kbd>8</kbd> reveal answers · <kbd>X</kbd> adds a strike · first team to {config.winningScore} wins</footer>
 
       {winner && <WinnerModal winner={winner.name} score={winner.score} onReplay={onReplay} onHome={onExit} />}
     </main>
@@ -1270,6 +1309,7 @@ export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [config, setConfig] = useState<GameConfig | null>(null)
   const [selectedGame, setSelectedGame] = useState<GameConfig['kind']>('feud')
+  const [feudPack, setFeudPack] = useState<FeudGamePack>(starterFeudPack)
   const [room, setRoom] = useState<RoomSnapshot | null>(null)
   const [roomNotice, setRoomNotice] = useState('')
 
@@ -1337,7 +1377,29 @@ export default function App() {
           <Home onChooseFeud={() => chooseGame('feud')} onChooseSpinSolve={() => chooseGame('spin-solve')} onJoin={() => setScreen('join')} />
         </>
       )}
-      {screen === 'setup' && <Setup kind={selectedGame} onBack={() => setScreen('home')} onStart={createRoom} />}
+      {screen === 'setup' && (
+        <Setup
+          kind={selectedGame}
+          feudPack={feudPack}
+          onBack={() => setScreen('home')}
+          onBuildPack={() => setScreen('builder')}
+          onSelectPack={(pack) => {
+            setFeudPack(pack)
+            saveFeudGamePackDraft(pack)
+          }}
+          onStart={createRoom}
+        />
+      )}
+      {screen === 'builder' && (
+        <FeudGameBuilder
+          initialPack={feudPack}
+          onBack={() => setScreen('setup')}
+          onUsePack={(pack) => {
+            setFeudPack(pack)
+            setScreen('setup')
+          }}
+        />
+      )}
       {screen === 'join' && <JoinRoom onBack={() => setScreen('home')} onJoin={joinRoom} />}
       {screen === 'host-lobby' && room && <HostLobby room={room} onStart={startGame} onExit={leaveRoom} />}
       {screen === 'player-room' && room && (
