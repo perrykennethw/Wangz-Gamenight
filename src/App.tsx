@@ -123,12 +123,12 @@ function Home({ onChooseFeud, onJoin }: HomeProps) {
         <div className="coming-grid">
           <article className="coming-card coming-card--charades">
             <span className="coming-card__number">02</span>
-            <div><h2>Charades</h2><p>Act fast. No words allowed.</p></div>
+            <div><h2>Wheel of Fortune</h2><p>Spin the wheel. Solve the puzzle.</p></div>
             <span className="coming-card__tag">In the works</span>
           </article>
           <article className="coming-card coming-card--trivia">
             <span className="coming-card__number">03</span>
-            <div><h2>House Trivia</h2><p>Inside jokes become hard facts.</p></div>
+            <div><h2>Jeopardy!</h2><p>Pick a category. Phrase it as a question.</p></div>
             <span className="coming-card__tag">In the works</span>
           </article>
         </div>
