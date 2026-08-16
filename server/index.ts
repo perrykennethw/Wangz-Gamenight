@@ -5,6 +5,7 @@ import { extname, resolve, sep } from 'node:path'
 import { Server, type Socket } from 'socket.io'
 import type {
   ChatMessage,
+  BuzzerState,
   ClientToServerEvents,
   GameConfig,
   Participant,
@@ -27,6 +28,7 @@ interface Room {
   participants: Map<string, Participant>
   connections: Map<string, Connection>
   messages: Record<TeamId, ChatMessage[]>
+  buzzer: BuzzerState
 }
 
 const rooms = new Map<string, Room>()
@@ -136,6 +138,7 @@ function snapshotFor(room: Room, socketId: string): RoomSnapshot {
     config: room.config,
     participants: [...room.participants.values()],
     messages: participant?.team ? room.messages[participant.team] : [],
+    buzzer: room.buzzer,
     viewer: connection.role === 'host'
       ? { role: 'host' }
       : { role: 'player', participantId: participant?.id ?? '', team: participant?.team ?? null },
@@ -146,6 +149,17 @@ function syncRoom(room: Room): void {
   for (const socketId of room.connections.keys()) {
     io.sockets.sockets.get(socketId)?.emit('room:snapshot', snapshotFor(room, socketId))
   }
+}
+
+function playersForTeam(room: Room, team: TeamId): Participant[] {
+  return [...room.participants.values()].filter((participant) => participant.team === team)
+}
+
+function nextRepresentative(room: Room, team: TeamId): string | null {
+  const players = playersForTeam(room, team)
+  if (players.length === 0) return null
+  const currentIndex = players.findIndex((participant) => participant.id === room.buzzer.representatives[team])
+  return players[(currentIndex + 1 + players.length) % players.length].id
 }
 
 function leaveCurrentRoom(socket: Socket<ClientToServerEvents, ServerToClientEvents>, notifySocket = true): void {
@@ -165,7 +179,20 @@ function leaveCurrentRoom(socket: Socket<ClientToServerEvents, ServerToClientEve
     return
   }
 
-  if (connection?.participantId) room.participants.delete(connection.participantId)
+  if (connection?.participantId) {
+    const participant = room.participants.get(connection.participantId)
+    room.participants.delete(connection.participantId)
+    if (participant?.team && room.buzzer.representatives[participant.team] === participant.id) {
+      room.buzzer = {
+        status: 'idle',
+        winner: null,
+        representatives: {
+          ...room.buzzer.representatives,
+          [participant.team]: nextRepresentative(room, participant.team),
+        },
+      }
+    }
+  }
   if (notifySocket) syncRoom(room)
 }
 
@@ -181,6 +208,7 @@ io.on('connection', (socket) => {
       participants: new Map(),
       connections: new Map([[socket.id, { role: 'host' }]]),
       messages: { one: [], two: [] },
+      buzzer: { status: 'idle', winner: null, representatives: { one: null, two: null } },
     }
     rooms.set(code, room)
     socketRooms.set(socket.id, code)
@@ -263,8 +291,117 @@ io.on('connection', (socket) => {
     if (!hasTeamOne || !hasTeamTwo) return reply({ ok: false, error: 'Each team needs at least one player.' })
 
     room.phase = 'playing'
+    room.buzzer = {
+      status: 'idle',
+      winner: null,
+      representatives: {
+        one: playersForTeam(room, 'one')[0]?.id ?? null,
+        two: playersForTeam(room, 'two')[0]?.id ?? null,
+      },
+    }
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('buzzer:arm', (reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can arm the buzzer.' })
+    if (room.phase !== 'playing') return reply({ ok: false, error: 'Start the game before arming the buzzer.' })
+
+    const representativesReady = (['one', 'two'] as TeamId[]).every((team) => {
+      const participant = room.participants.get(room.buzzer.representatives[team] ?? '')
+      return participant?.team === team
+    })
+    if (!representativesReady) return reply({ ok: false, error: 'Choose one representative from each team before arming the buzzer.' })
+
+    room.buzzer = { ...room.buzzer, status: 'armed', winner: null }
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('buzzer:close', (reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can close the buzzer.' })
+
+    room.buzzer = { ...room.buzzer, status: 'idle', winner: null }
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('buzzer:reset', (reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can reset the buzzer.' })
+
+    room.buzzer = { ...room.buzzer, status: 'idle', winner: null }
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('buzzer:select-representative', ({ team, participantId }, reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can choose representatives.' })
+    if (room.buzzer.status === 'armed') return reply({ ok: false, error: 'Close the buzzer before changing representatives.' })
+    const participant = room.participants.get(participantId)
+    if (participant?.team !== team) return reply({ ok: false, error: 'Choose a connected player from that team.' })
+
+    room.buzzer = {
+      status: 'idle',
+      winner: null,
+      representatives: { ...room.buzzer.representatives, [team]: participantId },
+    }
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('buzzer:next-pair', (reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can rotate representatives.' })
+    if (room.buzzer.status === 'armed') return reply({ ok: false, error: 'Close the buzzer before rotating representatives.' })
+
+    room.buzzer = {
+      status: 'idle',
+      winner: null,
+      representatives: {
+        one: nextRepresentative(room, 'one'),
+        two: nextRepresentative(room, 'two'),
+      },
+    }
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('buzzer:press', (reply) => {
+    const room = roomFor(socket.id)
+    const connection = room?.connections.get(socket.id)
+    const participant = connection?.participantId ? room?.participants.get(connection.participantId) : undefined
+
+    if (!room || !participant?.team || connection?.role !== 'player') {
+      return reply({ ok: false, error: 'Join a team before using the buzzer.' })
+    }
+    if (room.phase !== 'playing') return reply({ ok: false, error: 'The game has not started yet.' })
+    if (room.buzzer.representatives[participant.team] !== participant.id) {
+      return reply({ ok: false, error: 'You are not your team’s representative for this face-off.' })
+    }
+    if (room.buzzer.status !== 'armed' || room.buzzer.winner) {
+      return reply({ ok: false, error: room.buzzer.winner ? `${room.buzzer.winner.playerName} buzzed first.` : 'The buzzer is closed.' })
+    }
+
+    room.buzzer = {
+      ...room.buzzer,
+      status: 'locked',
+      winner: {
+        participantId: participant.id,
+        playerName: participant.name,
+        team: participant.team,
+      },
+    }
+    reply({ ok: true, data: room.buzzer })
     syncRoom(room)
   })
 
