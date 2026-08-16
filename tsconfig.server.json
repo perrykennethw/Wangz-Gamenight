@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": false,
+    "outDir": "server-dist",
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": ["server/index.ts", "src/roomTypes.ts"]
+}

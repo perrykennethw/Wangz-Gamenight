@@ -1,6 +1,8 @@
 node_modules
 dist
+server-dist
 .DS_Store
 .env
 .env.*
 !.env.example
+gha-creds-*.json

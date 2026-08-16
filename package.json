@@ -10,10 +10,11 @@
     "dev": "concurrently -k -n server,web -c yellow,cyan \"npm:dev:server\" \"npm:dev:web\"",
     "dev:web": "vite",
     "dev:server": "tsx watch server/index.ts",
-    "build": "vite build",
+    "build": "vite build && tsc -p tsconfig.server.json",
     "typecheck": "tsc --noEmit",
     "test:privacy": "tsx server/privacy.integration.ts",
     "server": "tsx server/index.ts",
+    "start": "node server-dist/server/index.js",
     "preview": "vite preview"
   },
   "dependencies": {
