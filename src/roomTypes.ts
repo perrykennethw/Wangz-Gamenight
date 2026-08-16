@@ -33,6 +33,7 @@ export interface BuzzerWinner {
 export interface BuzzerState {
   status: BuzzerStatus
   winner: BuzzerWinner | null
+  representatives: Record<TeamId, string | null>
 }
 
 export type RoomViewer =
@@ -63,6 +64,8 @@ export interface ClientToServerEvents {
   'buzzer:arm': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'buzzer:close': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'buzzer:reset': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'buzzer:select-representative': (details: { team: TeamId; participantId: string }, reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'buzzer:next-pair': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'buzzer:press': (reply: (result: RoomResult<BuzzerState>) => void) => void
 }
 

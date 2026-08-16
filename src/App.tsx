@@ -505,22 +505,36 @@ function PrototypeSwitcher({ current, onChange }: { current: PrototypeVariant; o
   )
 }
 
+function buzzerRepresentative(room: RoomSnapshot, team: TeamId) {
+  const participantId = room.buzzer.representatives[team]
+  return room.participants.find((participant) => participant.id === participantId)
+}
+
 function playerBuzzerCopy(room: RoomSnapshot, participantId: string) {
   const winner = room.buzzer.winner
-  if (room.buzzer.status === 'armed') return { kicker: 'Buzzer is live', headline: 'Buzz!', detail: 'First tap wins the face-off.' }
+  const viewer = room.participants.find((participant) => participant.id === participantId)
+  const isRepresentative = viewer?.team ? room.buzzer.representatives[viewer.team] === participantId : false
+  const teamOneRepresentative = buzzerRepresentative(room, 'one')?.name ?? room.config.teamOne
+  const teamTwoRepresentative = buzzerRepresentative(room, 'two')?.name ?? room.config.teamTwo
   if (winner?.participantId === participantId) return { kicker: 'Locked in', headline: 'You’re first!', detail: `${winner.playerName}, the answer is yours.` }
   if (winner) return { kicker: 'Buzzer locked', headline: `${winner.playerName} got it`, detail: `${teamName(room, winner.team)} buzzed first.` }
+  if (!isRepresentative) {
+    const teammate = viewer?.team ? buzzerRepresentative(room, viewer.team)?.name : undefined
+    return { kicker: 'Your teammate is up', headline: `${teammate ?? 'Representative'} is at the buzzer`, detail: `${teamOneRepresentative} vs. ${teamTwoRepresentative}` }
+  }
+  if (room.buzzer.status === 'armed') return { kicker: 'Buzzer is live', headline: 'Buzz!', detail: 'First tap wins the face-off.' }
   return { kicker: 'Buzzer closed', headline: 'Stand by', detail: 'The host will open the buzzer after reading the question.' }
 }
 
 function PlayerBuzzerVariantA({ room, participantId, team, isBuzzing, error, onBuzz, chat }: PlayerBuzzerVariantProps) {
   const copy = playerBuzzerCopy(room, participantId)
-  const isArmed = room.buzzer.status === 'armed'
+  const isRepresentative = room.buzzer.representatives[team] === participantId
+  const canBuzz = room.buzzer.status === 'armed' && isRepresentative
   return (
     <div className="player-room-layout player-room-layout--buzzer-stage">
-      <section className={`buzzer-stage buzzer-stage--${team} buzzer-state--${room.buzzer.status}`}>
+      <section className={`buzzer-stage buzzer-stage--${team} buzzer-state--${room.buzzer.status} ${isRepresentative ? 'is-representative' : 'is-spectator'}`}>
         <span>{copy.kicker}</span>
-        <button onClick={onBuzz} disabled={!isArmed || isBuzzing} aria-label={isArmed ? `Buzz for ${teamName(room, team)}` : copy.headline}>
+        <button onClick={onBuzz} disabled={!canBuzz || isBuzzing} aria-label={canBuzz ? `Buzz for ${teamName(room, team)}` : copy.headline}>
           <i aria-hidden="true"><Bolt size={34} /></i>
           <strong>{isBuzzing ? 'Sending…' : copy.headline}</strong>
           <small>{copy.detail}</small>
@@ -534,12 +548,13 @@ function PlayerBuzzerVariantA({ room, participantId, team, isBuzzing, error, onB
 
 function PlayerBuzzerVariantB({ room, participantId, team, isBuzzing, error, onBuzz, chat }: PlayerBuzzerVariantProps) {
   const copy = playerBuzzerCopy(room, participantId)
-  const isArmed = room.buzzer.status === 'armed'
+  const isRepresentative = room.buzzer.representatives[team] === participantId
+  const canBuzz = room.buzzer.status === 'armed' && isRepresentative
   return (
-    <div className={`buzzer-takeover buzzer-takeover--${team} buzzer-state--${room.buzzer.status}`}>
+    <div className={`buzzer-takeover buzzer-takeover--${team} buzzer-state--${room.buzzer.status} ${isRepresentative ? 'is-representative' : 'is-spectator'}`}>
       <section>
         <span>{teamName(room, team)} · {copy.kicker}</span>
-        <button onClick={onBuzz} disabled={!isArmed || isBuzzing}>
+        <button onClick={onBuzz} disabled={!canBuzz || isBuzzing}>
           <i aria-hidden="true"><Bolt size={46} /></i>
           <strong>{isBuzzing ? 'Sending…' : copy.headline}</strong>
           <small>{copy.detail}</small>
@@ -556,7 +571,8 @@ function PlayerBuzzerVariantB({ room, participantId, team, isBuzzing, error, onB
 
 function PlayerBuzzerVariantC({ room, participantId, team, isBuzzing, error, onBuzz, chat }: PlayerBuzzerVariantProps) {
   const copy = playerBuzzerCopy(room, participantId)
-  const isArmed = room.buzzer.status === 'armed'
+  const isRepresentative = room.buzzer.representatives[team] === participantId
+  const canBuzz = room.buzzer.status === 'armed' && isRepresentative
   return (
     <div className="buzzer-dock-layout">
       <div className="player-room-layout">
@@ -569,9 +585,9 @@ function PlayerBuzzerVariantC({ room, participantId, team, isBuzzing, error, onB
         </aside>
         {chat}
       </div>
-      <section className={`player-buzzer-dock player-buzzer-dock--${team} buzzer-state--${room.buzzer.status}`}>
+      <section className={`player-buzzer-dock player-buzzer-dock--${team} buzzer-state--${room.buzzer.status} ${isRepresentative ? 'is-representative' : 'is-spectator'}`}>
         <span><small>{copy.kicker}</small><b>{copy.detail}</b></span>
-        <button onClick={onBuzz} disabled={!isArmed || isBuzzing}>
+        <button onClick={onBuzz} disabled={!canBuzz || isBuzzing}>
           <Bolt size={22} /> {isBuzzing ? 'Sending…' : copy.headline}
         </button>
         {error && <p role="alert">{error}</p>}
@@ -627,7 +643,15 @@ function PlayerRoom({ room, onChooseTeam, onSendMessage, onBuzz, onExit }: Playe
       </header>
       <section className="player-room">
         {room.phase === 'playing' && (
-          <div className="game-live-banner"><span className="live-dot" /><strong>Game in progress</strong><span>Eyes on the main screen—this phone is now your buzzer.</span></div>
+          <div className="game-live-banner">
+            <span className="live-dot" />
+            <strong>Game in progress</strong>
+            <span>
+              {viewer.team && room.buzzer.representatives[viewer.team] === viewer.participantId
+                ? 'You’re at the podium—this phone is your buzzer.'
+                : 'Eyes on the main screen—your representative is at the podium.'}
+            </span>
+          </div>
         )}
         {!viewer.team ? (
           <>
@@ -726,21 +750,37 @@ function HostBuzzerPanel({ room }: { room: RoomSnapshot }) {
   const [isUpdating, setIsUpdating] = useState(false)
   const [error, setError] = useState('')
   const winner = room.buzzer.winner
+  const teamOneRepresentative = buzzerRepresentative(room, 'one')
+  const teamTwoRepresentative = buzzerRepresentative(room, 'two')
+  const matchup = `${teamOneRepresentative?.name ?? 'Choose team one'} vs. ${teamTwoRepresentative?.name ?? 'Choose team two'}`
   const statusCopy = winner
     ? `${winner.playerName} · ${teamName(room, winner.team)}`
     : room.buzzer.status === 'armed'
-      ? 'Live — first tap wins'
-      : 'Closed — players are standing by'
+      ? `${matchup} · live`
+      : `${matchup} · standing by`
 
-  const run = async (action: 'arm' | 'close' | 'reset') => {
+  const run = async (action: 'arm' | 'close' | 'reset' | 'next') => {
     setError('')
     setIsUpdating(true)
     try {
       if (action === 'arm') await roomClient.armBuzzer()
       if (action === 'close') await roomClient.closeBuzzer()
       if (action === 'reset') await roomClient.resetBuzzer()
+      if (action === 'next') await roomClient.nextBuzzerPair()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not update the buzzer.')
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
+  const selectRepresentative = async (team: TeamId, participantId: string) => {
+    setError('')
+    setIsUpdating(true)
+    try {
+      await roomClient.selectBuzzerRepresentative(team, participantId)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not choose that representative.')
     } finally {
       setIsUpdating(false)
     }
@@ -754,12 +794,31 @@ function HostBuzzerPanel({ room }: { room: RoomSnapshot }) {
         <strong>{statusCopy}</strong>
         {error && <small role="alert">{error}</small>}
       </div>
+      <div className="host-buzzer-reps">
+        {(['one', 'two'] as TeamId[]).map((team) => (
+          <label key={team}>
+            <span>{teamName(room, team)}</span>
+            <select
+              value={room.buzzer.representatives[team] ?? ''}
+              disabled={room.buzzer.status === 'armed' || isUpdating}
+              onChange={(event) => selectRepresentative(team, event.target.value)}
+              aria-label={`${teamName(room, team)} representative`}
+            >
+              {room.participants.filter((participant) => participant.team === team).map((participant) => (
+                <option key={participant.id} value={participant.id}>{participant.name}</option>
+              ))}
+            </select>
+          </label>
+        ))}
+        <b aria-hidden="true">VS</b>
+      </div>
       <div className="host-buzzer-panel__actions">
         {room.buzzer.status === 'armed' ? (
           <button onClick={() => run('close')} disabled={isUpdating}>Close buzzer</button>
         ) : (
           <button className="is-primary" onClick={() => run('arm')} disabled={isUpdating}>{winner ? 'Arm again' : 'Arm buzzer'} <kbd>Z</kbd></button>
         )}
+        <button onClick={() => run('next')} disabled={room.buzzer.status === 'armed' || isUpdating}>Next pair</button>
         {winner && <button onClick={() => run('reset')} disabled={isUpdating}>Clear result</button>}
       </div>
     </section>
@@ -788,7 +847,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
   const addStrike = () => setStrikes((current) => Math.min(3, current + 1))
 
   const awardRound = (teamIndex: TeamIndex) => {
-    void roomClient.resetBuzzer()
+    void roomClient.nextBuzzerPair()
     const nextScores: [number, number] = [scores[0], scores[1]]
     nextScores[teamIndex] += roundPot
     setScores(nextScores)

@@ -81,6 +81,18 @@ class RoomClient {
     })
   }
 
+  selectBuzzerRepresentative(team: TeamId, participantId: string): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit('buzzer:select-representative', { team, participantId }, (result) => this.finish(result, resolve, reject))
+    })
+  }
+
+  nextBuzzerPair(): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit('buzzer:next-pair', (result) => this.finish(result, resolve, reject))
+    })
+  }
+
   pressBuzzer(): Promise<BuzzerState> {
     return new Promise((resolve, reject) => {
       this.socket.emit('buzzer:press', (result) => this.finish(result, resolve, reject))

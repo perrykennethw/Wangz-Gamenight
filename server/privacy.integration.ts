@@ -55,19 +55,26 @@ function pressBuzzer(socket: TestSocket): Promise<void> {
   return new Promise((resolve, reject) => socket.emit('buzzer:press', (result) => unwrap(result, () => resolve(), reject)))
 }
 
-const [host, teamOne, teamTwo] = await Promise.all([connect(), connect(), connect()])
-const views: { host?: RoomSnapshot; teamOne?: RoomSnapshot; teamTwo?: RoomSnapshot } = {}
+function nextBuzzerPair(socket: TestSocket): Promise<RoomSnapshot> {
+  return new Promise((resolve, reject) => socket.emit('buzzer:next-pair', (result) => unwrap(result, resolve, reject)))
+}
+
+const [host, teamOne, teamTwo, teamOneBench] = await Promise.all([connect(), connect(), connect(), connect()])
+const views: { host?: RoomSnapshot; teamOne?: RoomSnapshot; teamTwo?: RoomSnapshot; teamOneBench?: RoomSnapshot } = {}
 
 host.on('room:snapshot', (snapshot) => { views.host = snapshot })
 teamOne.on('room:snapshot', (snapshot) => { views.teamOne = snapshot })
 teamTwo.on('room:snapshot', (snapshot) => { views.teamTwo = snapshot })
+teamOneBench.on('room:snapshot', (snapshot) => { views.teamOneBench = snapshot })
 
 try {
   const room = await createRoom(host)
   await joinRoom(teamOne, room.code, 'Avery')
   await joinRoom(teamTwo, room.code, 'Blake')
+  await joinRoom(teamOneBench, room.code, 'Casey')
   await chooseTeam(teamOne, 'one')
   await chooseTeam(teamTwo, 'two')
+  await chooseTeam(teamOneBench, 'one')
   await assert.rejects(() => chooseTeam(teamOne, 'two'), /team is locked/i)
 
   await sendMessage(teamOne, 'Our answer is snacks.')
@@ -84,9 +91,12 @@ try {
 
   const started = await startGame(host)
   assert.equal(started.phase, 'playing')
+  assert.equal(started.buzzer.representatives.one, started.participants.find((participant) => participant.name === 'Avery')?.id)
+  assert.equal(started.buzzer.representatives.two, started.participants.find((participant) => participant.name === 'Blake')?.id)
 
   const armed = await armBuzzer(host)
   assert.equal(armed.buzzer.status, 'armed')
+  await assert.rejects(() => pressBuzzer(teamOneBench), /not your team’s representative/i)
   const buzzes = await Promise.allSettled([pressBuzzer(teamOne), pressBuzzer(teamTwo)])
   assert.equal(buzzes.filter((result) => result.status === 'fulfilled').length, 1)
   assert.equal(buzzes.filter((result) => result.status === 'rejected').length, 1)
@@ -96,9 +106,14 @@ try {
   assert.equal(views.teamOne?.buzzer.winner?.participantId, views.host?.buzzer.winner?.participantId)
   assert.equal(views.teamTwo?.buzzer.winner?.participantId, views.host?.buzzer.winner?.participantId)
 
-  console.log('Room lifecycle, chat privacy, and first-buzz locking passed.')
+  const nextPair = await nextBuzzerPair(host)
+  assert.equal(nextPair.buzzer.representatives.one, nextPair.participants.find((participant) => participant.name === 'Casey')?.id)
+  assert.equal(nextPair.buzzer.representatives.two, nextPair.participants.find((participant) => participant.name === 'Blake')?.id)
+
+  console.log('Room lifecycle, chat privacy, representative rotation, and first-buzz locking passed.')
 } finally {
   host.disconnect()
   teamOne.disconnect()
   teamTwo.disconnect()
+  teamOneBench.disconnect()
 }
