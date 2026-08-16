@@ -32,6 +32,14 @@ Run `npm run typecheck` to verify the TypeScript source independently of the pro
 - Use the small `−` and `+` controls to correct a team score in five-point increments.
 - Rounds one and two score normally, round three scores double, and later rounds score triple.
 
+## Spin & Solve
+
+- Two teams play two to four regular puzzle rounds followed by a bonus finale for the leader.
+- The active team can spin, call letters, buy 250-point vowels, and submit solves from their phones; the host can facilitate every action from the shared screen.
+- Cash wedges score once per matching consonant. Bankrupt clears only the active team's current-round bank, while Lose a Turn passes control.
+- The host can undo one or more moves, accept a spoken solve, advance rounds, and end the bonus timer.
+- Puzzle solutions and solve submissions stay on the server until they are revealed.
+
 ## GCP deployment
 
 The production service is deployed to Cloud Run in `us-central1`:

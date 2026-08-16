@@ -12,7 +12,7 @@ import type {
 type TestSocket = Socket<ServerToClientEvents, ClientToServerEvents>
 
 const serverUrl = process.env.ROOM_SERVER_URL ?? 'http://localhost:3001'
-const config: GameConfig = { teamOne: 'Comets', teamTwo: 'Rockets', winningScore: 300 }
+const config: GameConfig = { kind: 'spin-solve', teamOne: 'Comets', teamTwo: 'Rockets', rounds: 3 }
 
 function connect(): Promise<TestSocket> {
   return new Promise((resolve, reject) => {
@@ -47,6 +47,10 @@ function startGame(socket: TestSocket): Promise<RoomSnapshot> {
   return new Promise((resolve, reject) => socket.emit('game:start', (result) => unwrap(result, resolve, reject)))
 }
 
+function spin(socket: TestSocket): Promise<RoomSnapshot> {
+  return new Promise((resolve, reject) => socket.emit('game:action', { type: 'spin' }, (result) => unwrap(result, resolve, reject)))
+}
+
 const [host, teamOne, teamTwo] = await Promise.all([connect(), connect(), connect()])
 const views: { host?: RoomSnapshot; teamOne?: RoomSnapshot; teamTwo?: RoomSnapshot } = {}
 
@@ -76,7 +80,13 @@ try {
 
   const started = await startGame(host)
   assert.equal(started.phase, 'playing')
-  console.log('Room lifecycle and private team-chat isolation passed.')
+  assert.equal(started.game?.kind, 'spin-solve')
+  assert.equal(JSON.stringify(started.game).includes('"solution"'), false)
+  await assert.rejects(() => spin(teamTwo), /team’s turn/i)
+  const afterSpin = await spin(teamOne)
+  assert.equal(afterSpin.game?.spinId, 1)
+  assert.equal(JSON.stringify(views.teamTwo?.game).includes('"solution"'), false)
+  console.log('Room lifecycle, game authorization, redaction, and private team-chat isolation passed.')
 } finally {
   host.disconnect()
   teamOne.disconnect()
