@@ -1,6 +1,7 @@
 export type TeamId = 'one' | 'two'
 export type RoomPhase = 'lobby' | 'playing'
 export type ParticipantRole = 'host' | 'player'
+export type BuzzerStatus = 'idle' | 'armed' | 'locked'
 
 export interface GameConfig {
   teamOne: string
@@ -23,6 +24,17 @@ export interface ChatMessage {
   sentAt: number
 }
 
+export interface BuzzerWinner {
+  participantId: string
+  playerName: string
+  team: TeamId
+}
+
+export interface BuzzerState {
+  status: BuzzerStatus
+  winner: BuzzerWinner | null
+}
+
 export type RoomViewer =
   | { role: 'host' }
   | { role: 'player'; participantId: string; team: TeamId | null }
@@ -33,6 +45,7 @@ export interface RoomSnapshot {
   config: GameConfig
   participants: Participant[]
   messages: ChatMessage[]
+  buzzer: BuzzerState
   viewer: RoomViewer
 }
 
@@ -47,6 +60,10 @@ export interface ClientToServerEvents {
   'room:leave': () => void
   'game:start': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'chat:send': (text: string, reply: (result: RoomResult<ChatMessage>) => void) => void
+  'buzzer:arm': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'buzzer:close': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'buzzer:reset': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'buzzer:press': (reply: (result: RoomResult<BuzzerState>) => void) => void
 }
 
 export interface ServerToClientEvents {

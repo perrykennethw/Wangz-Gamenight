@@ -47,6 +47,14 @@ function startGame(socket: TestSocket): Promise<RoomSnapshot> {
   return new Promise((resolve, reject) => socket.emit('game:start', (result) => unwrap(result, resolve, reject)))
 }
 
+function armBuzzer(socket: TestSocket): Promise<RoomSnapshot> {
+  return new Promise((resolve, reject) => socket.emit('buzzer:arm', (result) => unwrap(result, resolve, reject)))
+}
+
+function pressBuzzer(socket: TestSocket): Promise<void> {
+  return new Promise((resolve, reject) => socket.emit('buzzer:press', (result) => unwrap(result, () => resolve(), reject)))
+}
+
 const [host, teamOne, teamTwo] = await Promise.all([connect(), connect(), connect()])
 const views: { host?: RoomSnapshot; teamOne?: RoomSnapshot; teamTwo?: RoomSnapshot } = {}
 
@@ -76,7 +84,19 @@ try {
 
   const started = await startGame(host)
   assert.equal(started.phase, 'playing')
-  console.log('Room lifecycle and private team-chat isolation passed.')
+
+  const armed = await armBuzzer(host)
+  assert.equal(armed.buzzer.status, 'armed')
+  const buzzes = await Promise.allSettled([pressBuzzer(teamOne), pressBuzzer(teamTwo)])
+  assert.equal(buzzes.filter((result) => result.status === 'fulfilled').length, 1)
+  assert.equal(buzzes.filter((result) => result.status === 'rejected').length, 1)
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  assert.equal(views.host?.buzzer.status, 'locked')
+  assert.ok(views.host?.buzzer.winner)
+  assert.equal(views.teamOne?.buzzer.winner?.participantId, views.host?.buzzer.winner?.participantId)
+  assert.equal(views.teamTwo?.buzzer.winner?.participantId, views.host?.buzzer.winner?.participantId)
+
+  console.log('Room lifecycle, chat privacy, and first-buzz locking passed.')
 } finally {
   host.disconnect()
   teamOne.disconnect()

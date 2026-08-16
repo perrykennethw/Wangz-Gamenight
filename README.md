@@ -28,9 +28,26 @@ Run `npm run typecheck` to verify the TypeScript source independently of the pro
 
 - Click an answer or press `1`–`6` to reveal it.
 - Click **Add strike** or press `X` to mark a strike.
+- Press `Z` or use the buzzer panel to open and close the player buzzers. The server accepts only the first buzz while the buzzer is open.
 - Award the round pot to either team; `A` awards team one and `B` awards team two.
 - Use the small `−` and `+` controls to correct a team score in five-point increments.
 - Rounds one and two score normally, round three scores double, and later rounds score triple.
+
+## Buzzer UX prototype
+
+This branch contains a throwaway, in-memory proof of concept for testing the player buzzer experience. Start it with the normal development command:
+
+```bash
+npm run dev
+```
+
+Create a room in one tab, join both teams in two additional tabs or phones, and start the game. The host can then arm the buzzer and watch the first player response lock every connected screen.
+
+In development, the player screen has a floating switcher for three deliberately different treatments. Use its arrows, the keyboard’s left/right arrows, or open a player tab with `?variant=A`, `?variant=B`, or `?variant=C`:
+
+- **A — Stage + chat:** a large rectangular buzz surface beside persistent team chat.
+- **B — Full takeover:** the buzzer owns the screen, with chat collapsed below it.
+- **C — Buzzer dock:** the original team/chat layout stays intact with a persistent bottom action bar.
 
 ## GCP deployment
 
