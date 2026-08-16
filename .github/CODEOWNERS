@@ -1,0 +1,5 @@
+# Deployment and identity changes should always receive deliberate review.
+/.github/workflows/ @perrykennethw
+/Dockerfile @perrykennethw
+/.dockerignore @perrykennethw
+/.gcloudignore @perrykennethw

@@ -31,3 +31,49 @@ Run `npm run typecheck` to verify the TypeScript source independently of the pro
 - Award the round pot to either team; `A` awards team one and `B` awards team two.
 - Use the small `−` and `+` controls to correct a team score in five-point increments.
 - Rounds one and two score normally, round three scores double, and later rounds score triple.
+
+## GCP deployment
+
+The production service is deployed to Cloud Run in `us-central1`:
+
+<https://wangz-gamenight-404444556589.us-central1.run.app>
+
+The application runs as one same-origin container: the Node server serves the built Vite frontend and the Socket.IO endpoint. Room and chat state is held in memory, so the Cloud Run service is manually scaled to exactly one instance.
+
+Build and publish a new image with a unique tag:
+
+```bash
+gcloud builds submit \
+  --tag=us-central1-docker.pkg.dev/wangz-505715/wangz-gamenight/wangz-gamenight:TAG \
+  --region=us-central1 \
+  --project=wangz-505715 \
+  .
+```
+
+Deploy that image while preserving the realtime-service configuration:
+
+```bash
+gcloud run deploy wangz-gamenight \
+  --image=us-central1-docker.pkg.dev/wangz-505715/wangz-gamenight/wangz-gamenight:TAG \
+  --region=us-central1 \
+  --project=wangz-505715 \
+  --port=8080 \
+  --cpu=1 \
+  --memory=512Mi \
+  --timeout=3600 \
+  --concurrency=200 \
+  --scaling=1 \
+  --session-affinity \
+  --no-invoker-iam-check \
+  --service-account=wangz-gamenight-runtime@wangz-505715.iam.gserviceaccount.com \
+  --startup-probe=httpGet.path=/health,httpGet.port=8080,timeoutSeconds=2,periodSeconds=5,failureThreshold=6 \
+  --liveness-probe=httpGet.path=/health,httpGet.port=8080,initialDelaySeconds=10,timeoutSeconds=2,periodSeconds=30,failureThreshold=3
+```
+
+Deployments and instance replacements clear active rooms. Cloud Run also limits each WebSocket request to 60 minutes, so longer or restart-safe games require reconnect/resume handling and external room state.
+
+### Continuous deployment
+
+The GitHub Actions workflow in `.github/workflows/deploy.yml` runs on every push to `main`, including merged pull requests. It type-checks, builds, and runs the multiplayer privacy test before authenticating to GCP. It then publishes an image tagged with the Git commit SHA, deploys that immutable image, and repeats the health and multiplayer tests against production.
+
+GitHub authenticates with short-lived credentials through Workload Identity Federation. No Google Cloud service-account key or GitHub secret is required. The GCP identity provider is restricted to repository ID `1336056422`, the `main` branch, and this specific workflow file.

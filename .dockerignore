@@ -1,0 +1,13 @@
+.git
+.gitignore
+.gcloudignore
+.DS_Store
+.env
+.env.*
+!.env.example
+gha-creds-*.json
+docs
+node_modules
+dist
+server-dist
+npm-debug.log*

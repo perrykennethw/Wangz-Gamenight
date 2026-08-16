@@ -1,5 +1,7 @@
 import { createServer } from 'node:http'
 import { randomUUID } from 'node:crypto'
+import { readFile } from 'node:fs/promises'
+import { extname, resolve, sep } from 'node:path'
 import { Server, type Socket } from 'socket.io'
 import type {
   ChatMessage,
@@ -30,16 +32,77 @@ interface Room {
 const rooms = new Map<string, Room>()
 const socketRooms = new Map<string, string>()
 const codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const staticDirectory = resolve(process.cwd(), 'dist')
+const contentTypes: Record<string, string> = {
+  '.css': 'text/css; charset=utf-8',
+  '.html': 'text/html; charset=utf-8',
+  '.ico': 'image/x-icon',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.map': 'application/json; charset=utf-8',
+  '.png': 'image/png',
+  '.svg': 'image/svg+xml',
+  '.webp': 'image/webp',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+}
 
-const httpServer = createServer((request, response) => {
+const httpServer = createServer(async (request, response) => {
   if (request.url === '/health') {
     response.writeHead(200, { 'content-type': 'application/json' })
     response.end(JSON.stringify({ ok: true }))
     return
   }
 
-  response.writeHead(404)
-  response.end()
+  if (request.method !== 'GET' && request.method !== 'HEAD') {
+    response.writeHead(405, { allow: 'GET, HEAD' })
+    response.end()
+    return
+  }
+
+  let pathname: string
+  try {
+    pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://localhost').pathname)
+  } catch {
+    response.writeHead(400)
+    response.end()
+    return
+  }
+
+  const requestedPath = pathname === '/' ? '/index.html' : pathname
+  const candidatePath = resolve(staticDirectory, `.${requestedPath}`)
+  const isInsideStaticDirectory = candidatePath.startsWith(`${staticDirectory}${sep}`)
+  const filePath = isInsideStaticDirectory ? candidatePath : resolve(staticDirectory, 'index.html')
+
+  try {
+    const body = await readFile(filePath)
+    const extension = extname(filePath)
+    response.writeHead(200, {
+      'content-type': contentTypes[extension] ?? 'application/octet-stream',
+      'cache-control': requestedPath.startsWith('/assets/')
+        ? 'public, max-age=31536000, immutable'
+        : 'no-cache',
+    })
+    response.end(request.method === 'HEAD' ? undefined : body)
+  } catch {
+    if (extname(requestedPath)) {
+      response.writeHead(404)
+      response.end()
+      return
+    }
+
+    try {
+      const body = await readFile(resolve(staticDirectory, 'index.html'))
+      response.writeHead(200, {
+        'content-type': contentTypes['.html'],
+        'cache-control': 'no-cache',
+      })
+      response.end(request.method === 'HEAD' ? undefined : body)
+    } catch {
+      response.writeHead(503, { 'content-type': 'text/plain; charset=utf-8' })
+      response.end('Frontend build is unavailable.')
+    }
+  }
 })
 
 const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
@@ -210,6 +273,6 @@ io.on('connection', (socket) => {
 })
 
 const port = Number(process.env.PORT ?? 3001)
-httpServer.listen(port, () => {
+httpServer.listen(port, '0.0.0.0', () => {
   console.log(`Room server listening on http://localhost:${port}`)
 })
