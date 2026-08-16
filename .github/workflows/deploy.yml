@@ -45,6 +45,12 @@ jobs:
       - name: Type-check
         run: npm run typecheck
 
+      - name: Test Family Feud game packs
+        run: npm run test:game-packs
+
+      - name: Test Spin & Solve game logic
+        run: npm run test:spin-solve
+
       - name: Build production application
         run: npm run build
 

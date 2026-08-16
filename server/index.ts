@@ -14,6 +14,7 @@ import type {
   ServerToClientEvents,
   TeamId,
 } from '../src/roomTypes.js'
+import { GamePackError, normalizeFeudGamePack } from '../src/feudGamePack.js'
 import { applySpinSolveCommand, createSpinSolveGame, viewSpinSolveGame, type SpinSolveState } from './spinSolve.js'
 
 interface Connection {
@@ -113,6 +114,33 @@ const io = new Server<ClientToServerEvents, ServerToClientEvents>(httpServer, {
   cors: { origin: true },
 })
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function normalizeGameConfig(value: unknown): GameConfig {
+  if (!isRecord(value)) throw new Error('Choose a game before opening the room.')
+  const teamOne = typeof value.teamOne === 'string' ? value.teamOne.trim().slice(0, 24) : ''
+  const teamTwo = typeof value.teamTwo === 'string' ? value.teamTwo.trim().slice(0, 24) : ''
+  if (!teamOne || !teamTwo) throw new Error('Give both teams a name.')
+
+  if (value.kind === 'feud') {
+    const winningScore = typeof value.winningScore === 'number' ? value.winningScore : Number.NaN
+    if (!Number.isInteger(winningScore) || winningScore < 100 || winningScore > 1000) {
+      throw new Error('Choose a winning score between 100 and 1,000 points.')
+    }
+    return { kind: 'feud', teamOne, teamTwo, winningScore, pack: normalizeFeudGamePack(value.pack) }
+  }
+
+  if (value.kind === 'spin-solve') {
+    const rounds = typeof value.rounds === 'number' ? value.rounds : Number.NaN
+    if (!Number.isInteger(rounds) || rounds < 1 || rounds > 10) throw new Error('Choose between 1 and 10 rounds.')
+    return { kind: 'spin-solve', teamOne, teamTwo, rounds }
+  }
+
+  throw new Error('Choose a supported game before opening the room.')
+}
+
 function makeCode(): string {
   let code = ''
   do {
@@ -201,12 +229,20 @@ function leaveCurrentRoom(socket: Socket<ClientToServerEvents, ServerToClientEve
 
 io.on('connection', (socket) => {
   socket.on('room:create', (config, reply) => {
+    let normalizedConfig: GameConfig
+    try {
+      normalizedConfig = normalizeGameConfig(config)
+    } catch (cause) {
+      const message = cause instanceof GamePackError ? cause.issues[0] : cause instanceof Error ? cause.message : 'That room setup is not valid.'
+      return reply({ ok: false, error: message })
+    }
+
     leaveCurrentRoom(socket)
     const code = makeCode()
     const room: Room = {
       code,
       phase: 'lobby',
-      config,
+      config: normalizedConfig,
       hostSocketId: socket.id,
       participants: new Map(),
       connections: new Map([[socket.id, { role: 'host' }]]),
