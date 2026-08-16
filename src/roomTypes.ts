@@ -1,6 +1,7 @@
 export type TeamId = 'one' | 'two'
 export type RoomPhase = 'lobby' | 'playing'
 export type ParticipantRole = 'host' | 'player'
+export type BuzzerStatus = 'idle' | 'armed' | 'locked'
 
 export interface FeudGameConfig {
   kind: 'feud'
@@ -31,6 +32,18 @@ export interface ChatMessage {
   team: TeamId
   text: string
   sentAt: number
+}
+
+export interface BuzzerWinner {
+  participantId: string
+  playerName: string
+  team: TeamId
+}
+
+export interface BuzzerState {
+  status: BuzzerStatus
+  winner: BuzzerWinner | null
+  representatives: Record<TeamId, string | null>
 }
 
 export type RoomViewer =
@@ -80,6 +93,7 @@ export interface RoomSnapshot {
   config: GameConfig
   participants: Participant[]
   messages: ChatMessage[]
+  buzzer: BuzzerState
   viewer: RoomViewer
   game: GameView | null
 }
@@ -108,6 +122,12 @@ export interface ClientToServerEvents {
   'game:start': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'game:action': (command: SpinSolveCommand, reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'chat:send': (text: string, reply: (result: RoomResult<ChatMessage>) => void) => void
+  'buzzer:arm': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'buzzer:close': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'buzzer:reset': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'buzzer:select-representative': (details: { team: TeamId; participantId: string }, reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'buzzer:next-pair': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'buzzer:press': (reply: (result: RoomResult<BuzzerState>) => void) => void
 }
 
 export interface ServerToClientEvents {
