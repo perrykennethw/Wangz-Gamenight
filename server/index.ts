@@ -14,6 +14,7 @@ import type {
   ServerToClientEvents,
   TeamId,
 } from '../src/roomTypes.js'
+import { applySpinSolveCommand, createSpinSolveGame, viewSpinSolveGame, type SpinSolveState } from './spinSolve.js'
 
 interface Connection {
   role: 'host' | 'player'
@@ -28,6 +29,7 @@ interface Room {
   participants: Map<string, Participant>
   connections: Map<string, Connection>
   messages: Record<TeamId, ChatMessage[]>
+  game: SpinSolveState | null
   buzzer: BuzzerState
 }
 
@@ -142,6 +144,7 @@ function snapshotFor(room: Room, socketId: string): RoomSnapshot {
     viewer: connection.role === 'host'
       ? { role: 'host' }
       : { role: 'player', participantId: participant?.id ?? '', team: participant?.team ?? null },
+    game: room.game ? viewSpinSolveGame(room.game) : null,
   }
 }
 
@@ -208,6 +211,7 @@ io.on('connection', (socket) => {
       participants: new Map(),
       connections: new Map([[socket.id, { role: 'host' }]]),
       messages: { one: [], two: [] },
+      game: null,
       buzzer: { status: 'idle', winner: null, representatives: { one: null, two: null } },
     }
     rooms.set(code, room)
@@ -298,6 +302,50 @@ io.on('connection', (socket) => {
         one: playersForTeam(room, 'one')[0]?.id ?? null,
         two: playersForTeam(room, 'two')[0]?.id ?? null,
       },
+    }
+    if (room.config.kind === 'spin-solve') {
+      room.game = createSpinSolveGame(room.config, { random: Math.random, now: Date.now })
+    }
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('game:action', (command, reply) => {
+    const room = roomFor(socket.id)
+    const connection = room?.connections.get(socket.id)
+    const participant = connection?.participantId ? room?.participants.get(connection.participantId) : undefined
+
+    if (!room || room.phase !== 'playing' || !room.game || !connection) {
+      return reply({ ok: false, error: 'Start a spin-and-solve game before making a move.' })
+    }
+
+    const result = applySpinSolveCommand(
+      room.game,
+      { role: connection.role, team: participant?.team ?? null },
+      command,
+      { random: Math.random, now: Date.now },
+    )
+    if (!result.ok) return reply(result)
+
+    room.game = result.state
+    if (room.game.phase === 'bonus-solving' && room.game.bonusDeadline) {
+      const expectedDeadline = room.game.bonusDeadline
+      const roomCode = room.code
+      setTimeout(() => {
+        const liveRoom = rooms.get(roomCode)
+        if (!liveRoom?.game || liveRoom.game.phase !== 'bonus-solving' || liveRoom.game.bonusDeadline !== expectedDeadline) return
+        const finished = applySpinSolveCommand(
+          liveRoom.game,
+          { role: 'host', team: null },
+          { type: 'finish-bonus' },
+          { random: Math.random, now: Date.now },
+        )
+        if (finished.ok) {
+          liveRoom.game = finished.state
+          syncRoom(liveRoom)
+        }
+      }, Math.max(0, expectedDeadline - Date.now()) + 50)
     }
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })

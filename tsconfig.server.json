@@ -8,5 +8,6 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["server/index.ts", "src/roomTypes.ts"]
+  "include": ["server/**/*.ts", "src/roomTypes.ts"],
+  "exclude": ["server/**/*.test.ts", "server/**/*.integration.ts"]
 }

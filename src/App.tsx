@@ -1,8 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { CSSProperties, FormEvent } from 'react'
 import { multiplierForRound, questions } from './gameData'
 import { roomClient } from './roomClient'
-import type { ChatMessage, GameConfig, RoomSnapshot, TeamId } from './roomTypes'
+import type {
+  ChatMessage,
+  FeudGameConfig,
+  GameConfig,
+  RoomSnapshot,
+  SpinSolveCommand,
+  SpinSolveGameConfig,
+  SpinSolveView,
+  TeamId,
+  WheelSegment,
+} from './roomTypes'
 
 type Screen = 'home' | 'setup' | 'join' | 'host-lobby' | 'player-room' | 'game'
 type TeamIndex = 0 | 1
@@ -23,10 +33,12 @@ interface BrandProps {
 
 interface HomeProps {
   onChooseFeud: () => void
+  onChooseSpinSolve: () => void
   onJoin: () => void
 }
 
 interface SetupProps {
+  kind: GameConfig['kind']
   onBack: () => void
   onStart: (config: GameConfig) => Promise<void>
 }
@@ -54,7 +66,7 @@ interface WinnerModalProps {
 }
 
 interface GameProps {
-  config: GameConfig
+  config: FeudGameConfig
   roomCode: string
   room: RoomSnapshot
   onExit: () => void
@@ -95,7 +107,7 @@ function Brand({ compact = false }: BrandProps) {
   )
 }
 
-function Home({ onChooseFeud, onJoin }: HomeProps) {
+function Home({ onChooseFeud, onChooseSpinSolve, onJoin }: HomeProps) {
   return (
     <main className="home-shell">
       <nav className="home-nav">
@@ -134,11 +146,11 @@ function Home({ onChooseFeud, onJoin }: HomeProps) {
           <span>More games coming soon</span>
         </div>
         <div className="coming-grid">
-          <article className="coming-card coming-card--charades">
+          <button className="coming-card coming-card--wheel coming-card--ready" onClick={onChooseSpinSolve}>
             <span className="coming-card__number">02</span>
-            <div><h2>Wheel of Fortune</h2><p>Spin the wheel. Solve the puzzle.</p></div>
-            <span className="coming-card__tag">In the works</span>
-          </article>
+            <div><h2>Spin & Solve</h2><p>Spin. Call a letter. Crack the board.</p></div>
+            <span className="coming-card__tag">Ready to play →</span>
+          </button>
           <article className="coming-card coming-card--trivia">
             <span className="coming-card__number">03</span>
             <div><h2>Jeopardy!</h2><p>Pick a category. Phrase it as a question.</p></div>
@@ -150,10 +162,11 @@ function Home({ onChooseFeud, onJoin }: HomeProps) {
   )
 }
 
-function Setup({ onBack, onStart }: SetupProps) {
+function Setup({ kind, onBack, onStart }: SetupProps) {
   const [teamOne, setTeamOne] = useState('The Leftovers')
   const [teamTwo, setTeamTwo] = useState('The Plus Ones')
   const [winningScore, setWinningScore] = useState(300)
+  const [rounds, setRounds] = useState(3)
   const [isCreating, setIsCreating] = useState(false)
   const [error, setError] = useState('')
 
@@ -162,11 +175,10 @@ function Setup({ onBack, onStart }: SetupProps) {
     setIsCreating(true)
     setError('')
     try {
-      await onStart({
-        teamOne: teamOne.trim() || 'Team One',
-        teamTwo: teamTwo.trim() || 'Team Two',
-        winningScore,
-      })
+      const teams = { teamOne: teamOne.trim() || 'Team One', teamTwo: teamTwo.trim() || 'Team Two' }
+      await onStart(kind === 'feud'
+        ? { kind: 'feud', ...teams, winningScore }
+        : { kind: 'spin-solve', ...teams, rounds })
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not create the room.')
       setIsCreating(false)
@@ -183,13 +195,13 @@ function Setup({ onBack, onStart }: SetupProps) {
 
       <section className="setup-stage">
         <div className="setup-intro">
-          <span className="setup-number">01</span>
-          <p className="eyebrow">Family Feud</p>
-          <h1>Name your<br />rivals.</h1>
-          <p>Two teams enter. One team gets bragging rights until the next game night.</p>
+          <span className="setup-number">{kind === 'feud' ? '01' : '02'}</span>
+          <p className="eyebrow">{kind === 'feud' ? 'Family Feud' : 'Spin & Solve'}</p>
+          <h1>{kind === 'feud' ? <>Name your<br />rivals.</> : <>Choose your<br />word nerds.</>}</h1>
+          <p>{kind === 'feud' ? 'Two teams enter. One team gets bragging rights until the next game night.' : 'Build a round bank one letter at a time, dodge the bad wedges, and solve before the room does.'}</p>
           <div className="host-note">
             <Bolt size={17} />
-            <span><strong>Host tip</strong> Put this screen where everyone can see it. You’ll control reveals and scoring.</span>
+            <span><strong>Host tip</strong> {kind === 'feud' ? 'Put this screen where everyone can see it. You’ll control reveals and scoring.' : 'Keep the host screen visible. Players can spin and submit letters from their phones.'}</span>
           </div>
         </div>
 
@@ -203,17 +215,31 @@ function Setup({ onBack, onStart }: SetupProps) {
             <span>Team two</span>
             <input value={teamTwo} onChange={(e) => setTeamTwo(e.target.value)} maxLength={24} />
           </label>
-          <fieldset>
-            <legend>Play to</legend>
-            <div className="score-options">
-              {[200, 300, 400].map((score) => (
-                <label key={score} className={winningScore === score ? 'is-selected' : ''}>
-                  <input type="radio" name="winningScore" value={score} checked={winningScore === score} onChange={() => setWinningScore(score)} />
-                  <span>{score}</span> pts
-                </label>
-              ))}
-            </div>
-          </fieldset>
+          {kind === 'feud' ? (
+            <fieldset>
+              <legend>Play to</legend>
+              <div className="score-options">
+                {[200, 300, 400].map((score) => (
+                  <label key={score} className={winningScore === score ? 'is-selected' : ''}>
+                    <input type="radio" name="winningScore" value={score} checked={winningScore === score} onChange={() => setWinningScore(score)} />
+                    <span>{score}</span> pts
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          ) : (
+            <fieldset>
+              <legend>Regular rounds</legend>
+              <div className="score-options">
+                {[2, 3, 4].map((count) => (
+                  <label key={count} className={rounds === count ? 'is-selected' : ''}>
+                    <input type="radio" name="rounds" value={count} checked={rounds === count} onChange={() => setRounds(count)} />
+                    <span>{count}</span> rounds
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+          )}
           {error && <p className="form-error" role="alert">{error}</p>}
           <button className="primary-button" type="submit" disabled={isCreating}>
             {isCreating ? 'Opening room…' : 'Open the room'} {!isCreating && <Arrow />}
@@ -460,6 +486,7 @@ interface PlayerRoomProps {
   room: RoomSnapshot
   onChooseTeam: (team: TeamId) => Promise<void>
   onSendMessage: (text: string) => Promise<void>
+  onGameAction: (command: SpinSolveCommand) => Promise<void>
   onBuzz: () => Promise<void>
   onExit: () => void
 }
@@ -597,7 +624,7 @@ function PlayerBuzzerVariantC({ room, participantId, team, isBuzzing, error, onB
 }
 
 // PROTOTYPE: Three realtime buzzer treatments on the existing player-room route, switchable via ?variant=.
-function PlayerRoom({ room, onChooseTeam, onSendMessage, onBuzz, onExit }: PlayerRoomProps) {
+function PlayerRoom({ room, onChooseTeam, onSendMessage, onGameAction, onBuzz, onExit }: PlayerRoomProps) {
   const [error, setError] = useState('')
   const [buzzError, setBuzzError] = useState('')
   const [isBuzzing, setIsBuzzing] = useState(false)
@@ -647,7 +674,9 @@ function PlayerRoom({ room, onChooseTeam, onSendMessage, onBuzz, onExit }: Playe
             <span className="live-dot" />
             <strong>Game in progress</strong>
             <span>
-              {viewer.team && room.buzzer.representatives[viewer.team] === viewer.participantId
+              {room.config.kind === 'spin-solve'
+                ? 'Eyes on the main screen—your controls are live below.'
+                : viewer.team && room.buzzer.representatives[viewer.team] === viewer.participantId
                 ? 'You’re at the podium—this phone is your buzzer.'
                 : 'Eyes on the main screen—your representative is at the podium.'}
             </span>
@@ -673,6 +702,17 @@ function PlayerRoom({ room, onChooseTeam, onSendMessage, onBuzz, onExit }: Playe
               <h1>{teamName(room, viewer.team)}</h1>
               <div className="player-chips">{room.participants.filter((player) => player.team === viewer.team).map((player) => <span key={player.id}>{player.name}</span>)}</div>
             </aside>
+            <TeamChat
+              team={viewer.team}
+              teamLabel={teamName(room, viewer.team)}
+              messages={room.messages}
+              participantId={viewer.participantId}
+              onSend={onSendMessage}
+            />
+          </div>
+        ) : room.config.kind === 'spin-solve' ? (
+          <div className="player-room-layout player-room-layout--game">
+            <PlayerSpinSolve room={room} onAction={onGameAction} />
             <TeamChat
               team={viewer.team}
               teamLabel={teamName(room, viewer.team)}
@@ -726,6 +766,278 @@ function AnswerTile({ answer, points, number, revealed, onReveal }: AnswerTilePr
       <span className="answer-tile__face answer-tile__front"><b>{number}</b><small>Reveal</small></span>
       <span className="answer-tile__face answer-tile__back"><b>{answer}</b><strong>{points}</strong></span>
     </button>
+  )
+}
+
+const consonants = 'BCDFGHJKLMNPQRSTVWXYZ'.split('')
+const vowels = 'AEIOU'.split('')
+
+function wheelLabel(segment: WheelSegment): string {
+  if (segment.kind === 'bankrupt') return 'BANKRUPT'
+  if (segment.kind === 'lose-turn') return 'LOSE'
+  return String(segment.value)
+}
+
+function teamLabel(config: GameConfig, team: TeamId): string {
+  return team === 'one' ? config.teamOne : config.teamTwo
+}
+
+function SpinnerWheel({ game, compact = false }: { game: SpinSolveView; compact?: boolean }) {
+  const angle = game.wheelIndex === null ? 0 : 360 - (game.wheelIndex * 15 + 7.5)
+  const rotation = game.spinId * 1440 + angle
+  const result = game.pendingWedge ? wheelLabel(game.pendingWedge) : 'SPIN'
+
+  return (
+    <div className={`spinner-wrap ${compact ? 'spinner-wrap--compact' : ''}`} aria-label={`Wheel result: ${result}`}>
+      <span className="spinner-pointer" aria-hidden="true" />
+      <div className="spinner-wheel" style={{ '--wheel-rotation': `${rotation}deg` } as CSSProperties}>
+        {game.wheelSegments.map((segment, index) => (
+          <span
+            className={`spinner-wheel__label spinner-wheel__label--${segment.kind}`}
+            style={{ '--segment-index': index } as CSSProperties}
+            key={`${segment.kind}-${segment.kind === 'points' ? segment.value : index}-${index}`}
+          >
+            {wheelLabel(segment)}
+          </span>
+        ))}
+        <span className="spinner-wheel__hub"><b>{result}</b><small>result</small></span>
+      </div>
+    </div>
+  )
+}
+
+function PuzzleTiles({ maskedPuzzle, compact = false }: { maskedPuzzle: string; compact?: boolean }) {
+  return (
+    <div className={`letter-board ${compact ? 'letter-board--compact' : ''}`} aria-label={maskedPuzzle.replaceAll('_', 'blank')}>
+      {maskedPuzzle.split(' ').map((word, wordIndex) => (
+        <span className="letter-word" key={`${word}-${wordIndex}`}>
+          {[...word].map((character, index) => (
+            <i className={character === '_' ? 'is-hidden' : !/[A-Z0-9]/.test(character) ? 'is-punctuation' : 'is-revealed'} key={`${character}-${index}`}>
+              {character === '_' ? <span aria-hidden="true">·</span> : character}
+            </i>
+          ))}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function LetterKeyboard({ letters, used, selected = [], onChoose }: {
+  letters: string[]
+  used: string[]
+  selected?: string[]
+  onChoose: (letter: string) => void
+}) {
+  return (
+    <div className="letter-keyboard">
+      {letters.map((letter) => (
+        <button
+          type="button"
+          key={letter}
+          disabled={used.includes(letter)}
+          className={selected.includes(letter) ? 'is-selected' : ''}
+          onClick={() => onChoose(letter)}
+          aria-pressed={selected.includes(letter)}
+        >
+          {letter}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function Countdown({ deadline }: { deadline: number }) {
+  const [remaining, setRemaining] = useState(() => Math.max(0, deadline - Date.now()))
+
+  useEffect(() => {
+    setRemaining(Math.max(0, deadline - Date.now()))
+    const timer = window.setInterval(() => setRemaining(Math.max(0, deadline - Date.now())), 100)
+    return () => window.clearInterval(timer)
+  }, [deadline])
+
+  return <strong className="bonus-clock" aria-live="polite">{Math.ceil(remaining / 1000)}</strong>
+}
+
+interface SpinActionPanelProps {
+  game: SpinSolveView
+  config: SpinSolveGameConfig
+  canAct: boolean
+  isHost: boolean
+  onAction: (command: SpinSolveCommand) => Promise<void>
+}
+
+function SpinActionPanel({ game, config, canAct, isHost, onAction }: SpinActionPanelProps) {
+  const [solution, setSolution] = useState('')
+  const [bonusConsonants, setBonusConsonants] = useState<string[]>([])
+  const [bonusVowel, setBonusVowel] = useState('')
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const activeName = teamLabel(config, game.activeTeam)
+
+  const run = async (command: SpinSolveCommand) => {
+    setError('')
+    setBusy(true)
+    try {
+      await onAction(command)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'That move could not be played.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const submitSolve = async (event: FormEvent<HTMLFormElement>, bonus = false) => {
+    event.preventDefault()
+    if (!solution.trim()) return
+    await run({ type: bonus ? 'bonus-solve' : 'solve', solution })
+    setSolution('')
+  }
+
+  if (game.phase === 'complete') {
+    return (
+      <div className="spin-action-panel spin-action-panel--complete">
+        <span>Final score</span>
+        <strong>{game.winnerTeam ? teamLabel(config, game.winnerTeam) : activeName}</strong>
+        <p>{game.message}</p>
+      </div>
+    )
+  }
+
+  if (!canAct && game.phase !== 'round-complete') {
+    return (
+      <div className="spin-action-panel spin-action-panel--waiting">
+        <span>Eyes on the board</span>
+        <strong>{activeName} are up.</strong>
+        <p>Your controls will unlock when your team has the wheel.</p>
+      </div>
+    )
+  }
+
+  return (
+    <section className="spin-action-panel" aria-label="Game controls">
+      {game.phase === 'regular' && (
+        <>
+          <div className="action-heading"><span>{activeName} control the board</span><b>Choose one</b></div>
+          <button className="spin-button" disabled={busy} onClick={() => run({ type: 'spin' })}><span>Spin</span><small>Test your luck</small></button>
+          <div className="vowel-buy">
+            <span>Buy a vowel · 250</span>
+            <LetterKeyboard letters={vowels} used={game.usedLetters} onChoose={(letter) => run({ type: 'buy-vowel', letter })} />
+          </div>
+          <form className="solve-form" onSubmit={(event) => submitSolve(event)}>
+            <label htmlFor="regular-solve">Solve the puzzle</label>
+            <div><input id="regular-solve" value={solution} onChange={(event) => setSolution(event.target.value)} placeholder="Type the full phrase" /><button disabled={busy || !solution.trim()}>Solve</button></div>
+          </form>
+          {isHost && <button className="accept-solve-button" onClick={() => run({ type: 'award-solve' })}>Accept the active team’s spoken solve</button>}
+        </>
+      )}
+
+      {game.phase === 'choosing-letter' && (
+        <>
+          <div className="action-heading"><span>{activeName} spun {game.pendingWedge?.kind === 'points' ? game.pendingWedge.value : ''}</span><b>Call a consonant</b></div>
+          <LetterKeyboard letters={consonants} used={game.usedLetters} onChoose={(letter) => run({ type: 'guess-letter', letter })} />
+        </>
+      )}
+
+      {game.phase === 'round-complete' && (
+        <div className="round-complete-action">
+          <span>Round {game.round} complete</span>
+          <strong>{game.message}</strong>
+          {isHost ? <button className="spin-button" disabled={busy} onClick={() => run({ type: 'next-round' })}>{game.round < game.totalRounds ? 'Open next round' : 'Start bonus finale'}</button> : <p>The host is setting the next board.</p>}
+        </div>
+      )}
+
+      {game.phase === 'bonus-letters' && (
+        <div className="bonus-choices">
+          <div className="action-heading"><span>R S T L N E are on us</span><b>Pick 3 consonants + 1 vowel</b></div>
+          <LetterKeyboard
+            letters={consonants.filter((letter) => !'RSTLN'.includes(letter))}
+            used={[]}
+            selected={bonusConsonants}
+            onChoose={(letter) => setBonusConsonants((current) => current.includes(letter) ? current.filter((item) => item !== letter) : current.length < 3 ? [...current, letter] : current)}
+          />
+          <LetterKeyboard letters={vowels.filter((letter) => letter !== 'E')} used={[]} selected={bonusVowel ? [bonusVowel] : []} onChoose={setBonusVowel} />
+          <button className="spin-button" disabled={busy || bonusConsonants.length !== 3 || !bonusVowel} onClick={() => run({ type: 'choose-bonus-letters', consonants: bonusConsonants.join(''), vowel: bonusVowel })}>Lock the letters</button>
+        </div>
+      )}
+
+      {game.phase === 'bonus-solving' && game.bonusDeadline && (
+        <div className="bonus-solving">
+          <div className="action-heading"><span>Bonus finale</span><b>Say it before zero</b></div>
+          <Countdown deadline={game.bonusDeadline} />
+          <form className="solve-form" onSubmit={(event) => submitSolve(event, true)}>
+            <label htmlFor="bonus-solve">Solve the bonus puzzle</label>
+            <div><input id="bonus-solve" value={solution} onChange={(event) => setSolution(event.target.value)} placeholder="Type the full phrase" autoFocus /><button disabled={busy || !solution.trim()}>Try it</button></div>
+          </form>
+          {isHost && <button className="end-timer-button" onClick={() => run({ type: 'finish-bonus' })}>End timer and reveal</button>}
+        </div>
+      )}
+      {error && <p className="spin-action-error" role="alert">{error}</p>}
+    </section>
+  )
+}
+
+function SpinScoreboard({ game, config }: { game: SpinSolveView; config: SpinSolveGameConfig }) {
+  return (
+    <div className="spin-scoreboard">
+      {(['one', 'two'] as const).map((team) => (
+        <section className={`spin-team-score spin-team-score--${team} ${game.activeTeam === team ? 'is-active' : ''}`} key={team}>
+          <span>{game.activeTeam === team ? 'On the wheel' : `Team ${team}`}</span>
+          <h2>{teamLabel(config, team)}</h2>
+          <div><b>{game.totals[team]}</b><small>banked</small><strong>+{game.roundBanks[team]}</strong><small>round</small></div>
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function SpinSolveHostGame({ room, onAction, onExit, onReplay }: {
+  room: RoomSnapshot
+  onAction: (command: SpinSolveCommand) => Promise<void>
+  onExit: () => void
+  onReplay: () => void
+}) {
+  if (room.config.kind !== 'spin-solve' || room.game?.kind !== 'spin-solve') return null
+  const game = room.game
+  const finale = game.phase === 'bonus-letters' || game.phase === 'bonus-solving' || game.phase === 'complete'
+
+  return (
+    <main className="spin-game-shell">
+      <header className="spin-topbar">
+        <Brand compact />
+        <div><span>Room {room.code}</span><b>{finale ? 'Bonus finale' : `Round ${game.round} of ${game.totalRounds}`}</b></div>
+        <button className="text-button text-button--light" onClick={onExit}>Exit game</button>
+      </header>
+      <div className="spin-game-stage">
+        <SpinScoreboard game={game} config={room.config} />
+        <section className="spin-puzzle-stage">
+          <div className="spin-puzzle-heading"><span>{game.category}</span><p aria-live="polite">{game.message}</p>{game.canUndo && <button onClick={() => onAction({ type: 'undo' })}>Undo last move</button>}</div>
+          <PuzzleTiles maskedPuzzle={game.maskedPuzzle} />
+        </section>
+        <div className="spin-lower-stage">
+          <SpinnerWheel game={game} />
+          <SpinActionPanel game={game} config={room.config} canAct isHost onAction={onAction} />
+        </div>
+      </div>
+      {game.phase === 'complete' && game.winnerTeam && (
+        <WinnerModal winner={teamLabel(room.config, game.winnerTeam)} score={game.totals[game.winnerTeam]} onReplay={onReplay} onHome={onExit} />
+      )}
+    </main>
+  )
+}
+
+function PlayerSpinSolve({ room, onAction }: { room: RoomSnapshot; onAction: (command: SpinSolveCommand) => Promise<void> }) {
+  if (room.config.kind !== 'spin-solve' || room.game?.kind !== 'spin-solve' || room.viewer.role !== 'player') return null
+  const team = room.viewer.team
+  const game = room.game
+  const canAct = Boolean(team && (game.phase.startsWith('bonus') ? team === game.winnerTeam : team === game.activeTeam))
+
+  return (
+    <section className="player-spin-console">
+      <header><span>{game.category}</span><b>{game.phase.startsWith('bonus') || game.phase === 'complete' ? 'Bonus finale' : `Round ${game.round} / ${game.totalRounds}`}</b></header>
+      <PuzzleTiles maskedPuzzle={game.maskedPuzzle} compact />
+      <div className="player-spin-status"><strong>{game.message}</strong><span>{team ? `${teamLabel(room.config, team)} · ${game.totals[team]} banked · +${game.roundBanks[team]} this round` : 'Choose a team to play'}</span></div>
+      <SpinActionPanel game={game} config={room.config} canAct={canAct} isHost={false} onAction={onAction} />
+    </section>
   )
 }
 
@@ -957,8 +1269,13 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
 export default function App() {
   const [screen, setScreen] = useState<Screen>('home')
   const [config, setConfig] = useState<GameConfig | null>(null)
+  const [selectedGame, setSelectedGame] = useState<GameConfig['kind']>('feud')
   const [room, setRoom] = useState<RoomSnapshot | null>(null)
   const [roomNotice, setRoomNotice] = useState('')
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, behavior: 'auto' })
+  }, [screen])
 
   useEffect(() => roomClient.subscribe(
     (snapshot) => setRoom(snapshot),
@@ -1003,15 +1320,24 @@ export default function App() {
     setScreen('setup')
   }
 
+  const chooseGame = (kind: GameConfig['kind']) => {
+    setSelectedGame(kind)
+    setScreen('setup')
+  }
+
+  const gameAction = (command: SpinSolveCommand) => roomClient.gameAction(command).then((snapshot) => {
+    setRoom(snapshot)
+  })
+
   return (
     <>
       {screen === 'home' && (
         <>
           {roomNotice && <div className="room-notice" role="status">{roomNotice}<button onClick={() => setRoomNotice('')}>×</button></div>}
-          <Home onChooseFeud={() => setScreen('setup')} onJoin={() => setScreen('join')} />
+          <Home onChooseFeud={() => chooseGame('feud')} onChooseSpinSolve={() => chooseGame('spin-solve')} onJoin={() => setScreen('join')} />
         </>
       )}
-      {screen === 'setup' && <Setup onBack={() => setScreen('home')} onStart={createRoom} />}
+      {screen === 'setup' && <Setup kind={selectedGame} onBack={() => setScreen('home')} onStart={createRoom} />}
       {screen === 'join' && <JoinRoom onBack={() => setScreen('home')} onJoin={joinRoom} />}
       {screen === 'host-lobby' && room && <HostLobby room={room} onStart={startGame} onExit={leaveRoom} />}
       {screen === 'player-room' && room && (
@@ -1019,11 +1345,12 @@ export default function App() {
           room={room}
           onChooseTeam={(team) => roomClient.chooseTeam(team).then(setRoom)}
           onSendMessage={(text) => roomClient.sendMessage(text).then(() => undefined)}
+          onGameAction={gameAction}
           onBuzz={() => roomClient.pressBuzzer().then(() => undefined)}
           onExit={leaveRoom}
         />
       )}
-      {screen === 'game' && config && room && (
+      {screen === 'game' && config?.kind === 'feud' && room && (
         <Game
           key={`${config.teamOne}-${config.teamTwo}-${screen}`}
           config={config}
@@ -1032,6 +1359,9 @@ export default function App() {
           onExit={leaveRoom}
           onReplay={replay}
         />
+      )}
+      {screen === 'game' && config?.kind === 'spin-solve' && room && (
+        <SpinSolveHostGame room={room} onAction={gameAction} onExit={leaveRoom} onReplay={replay} />
       )}
     </>
   )

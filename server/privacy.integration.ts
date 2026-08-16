@@ -12,7 +12,7 @@ import type {
 type TestSocket = Socket<ServerToClientEvents, ClientToServerEvents>
 
 const serverUrl = process.env.ROOM_SERVER_URL ?? 'http://localhost:3001'
-const config: GameConfig = { teamOne: 'Comets', teamTwo: 'Rockets', winningScore: 300 }
+const config: GameConfig = { kind: 'spin-solve', teamOne: 'Comets', teamTwo: 'Rockets', rounds: 3 }
 
 function connect(): Promise<TestSocket> {
   return new Promise((resolve, reject) => {
@@ -45,6 +45,10 @@ function sendMessage(socket: TestSocket, text: string): Promise<void> {
 
 function startGame(socket: TestSocket): Promise<RoomSnapshot> {
   return new Promise((resolve, reject) => socket.emit('game:start', (result) => unwrap(result, resolve, reject)))
+}
+
+function spin(socket: TestSocket): Promise<RoomSnapshot> {
+  return new Promise((resolve, reject) => socket.emit('game:action', { type: 'spin' }, (result) => unwrap(result, resolve, reject)))
 }
 
 function armBuzzer(socket: TestSocket): Promise<RoomSnapshot> {
@@ -91,6 +95,12 @@ try {
 
   const started = await startGame(host)
   assert.equal(started.phase, 'playing')
+  assert.equal(started.game?.kind, 'spin-solve')
+  assert.equal(JSON.stringify(started.game).includes('"solution"'), false)
+  await assert.rejects(() => spin(teamTwo), /team’s turn/i)
+  const afterSpin = await spin(teamOne)
+  assert.equal(afterSpin.game?.spinId, 1)
+  assert.equal(JSON.stringify(views.teamTwo?.game).includes('"solution"'), false)
   assert.equal(started.buzzer.representatives.one, started.participants.find((participant) => participant.name === 'Avery')?.id)
   assert.equal(started.buzzer.representatives.two, started.participants.find((participant) => participant.name === 'Blake')?.id)
 
@@ -110,7 +120,7 @@ try {
   assert.equal(nextPair.buzzer.representatives.one, nextPair.participants.find((participant) => participant.name === 'Casey')?.id)
   assert.equal(nextPair.buzzer.representatives.two, nextPair.participants.find((participant) => participant.name === 'Blake')?.id)
 
-  console.log('Room lifecycle, chat privacy, representative rotation, and first-buzz locking passed.')
+  console.log('Room lifecycle, Spin & Solve authorization/redaction, chat privacy, representative rotation, and first-buzz locking passed.')
 } finally {
   host.disconnect()
   teamOne.disconnect()

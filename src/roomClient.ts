@@ -7,6 +7,7 @@ import type {
   RoomResult,
   RoomSnapshot,
   ServerToClientEvents,
+  SpinSolveCommand,
   TeamId,
 } from './roomTypes'
 
@@ -54,6 +55,12 @@ class RoomClient {
   startGame(): Promise<RoomSnapshot> {
     return new Promise((resolve, reject) => {
       this.socket.emit('game:start', (result) => this.finish(result, resolve, reject))
+    })
+  }
+
+  gameAction(command: SpinSolveCommand): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit('game:action', command, (result) => this.finish(result, resolve, reject))
     })
   }
 
