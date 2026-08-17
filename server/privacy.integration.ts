@@ -40,7 +40,7 @@ function chooseTeam(socket: TestSocket, team: TeamId): Promise<RoomSnapshot> {
 }
 
 function sendMessage(socket: TestSocket, text: string): Promise<void> {
-  return new Promise((resolve, reject) => socket.emit('chat:send', text, (result) => unwrap(result, () => resolve(), reject)))
+  return new Promise((resolve, reject) => socket.emit('chat:send', { text }, (result) => unwrap(result, () => resolve(), reject)))
 }
 
 function startGame(socket: TestSocket): Promise<RoomSnapshot> {
@@ -86,12 +86,16 @@ try {
   assert.equal(views.teamOne?.messages.at(-1)?.text, 'Our answer is snacks.')
   assert.equal(views.teamTwo?.messages.length, 0)
   assert.equal(views.host?.messages.length, 0)
+  assert.equal(views.host?.teamChats.one?.at(-1)?.text, 'Our answer is snacks.')
+  assert.equal(views.host?.teamChats.two?.length, 0)
 
   await sendMessage(teamTwo, 'Let’s guess traffic.')
   await new Promise((resolve) => setTimeout(resolve, 30))
   assert.equal(views.teamTwo?.messages.at(-1)?.text, 'Let’s guess traffic.')
   assert.equal(views.teamOne?.messages.length, 1)
   assert.equal(views.host?.messages.length, 0)
+  assert.equal(views.host?.teamChats.one?.length, 1)
+  assert.equal(views.host?.teamChats.two?.at(-1)?.text, 'Let’s guess traffic.')
 
   const started = await startGame(host)
   assert.equal(started.phase, 'playing')
