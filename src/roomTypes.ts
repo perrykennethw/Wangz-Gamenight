@@ -2,6 +2,7 @@ export type TeamId = 'one' | 'two'
 export type RoomPhase = 'lobby' | 'playing'
 export type ParticipantRole = 'host' | 'player'
 export type BuzzerStatus = 'idle' | 'armed' | 'locked'
+export type PlayPassChoice = 'play' | 'pass'
 
 export interface FeudAnswer {
   id: string
@@ -30,6 +31,13 @@ export interface FeudGameConfig {
   pack: FeudGamePack
 }
 
+export interface FeudPublicConfig {
+  kind: 'feud'
+  teamOne: string
+  teamTwo: string
+  winningScore: number
+}
+
 export interface SpinSolveGameConfig {
   kind: 'spin-solve'
   teamOne: string
@@ -38,6 +46,7 @@ export interface SpinSolveGameConfig {
 }
 
 export type GameConfig = FeudGameConfig | SpinSolveGameConfig
+export type RoomConfig = FeudGameConfig | FeudPublicConfig | SpinSolveGameConfig
 
 export interface Participant {
   id: string
@@ -64,6 +73,21 @@ export interface BuzzerState {
   status: BuzzerStatus
   winner: BuzzerWinner | null
   representatives: Record<TeamId, string | null>
+}
+
+export interface ChatState {
+  lockedTeam: TeamId | null
+  reason: string | null
+}
+
+export interface PlayPassPollView {
+  status: 'closed' | 'open' | 'decided'
+  team: TeamId | null
+  activePlayerId: string | null
+  votes: Record<PlayPassChoice, number>
+  viewerVote: PlayPassChoice | null
+  decision: PlayPassChoice | null
+  controllingTeam: TeamId | null
 }
 
 export type RoomViewer =
@@ -110,9 +134,12 @@ export type GameView = SpinSolveView
 export interface RoomSnapshot {
   code: string
   phase: RoomPhase
-  config: GameConfig
+  config: RoomConfig
   participants: Participant[]
   messages: ChatMessage[]
+  teamChats: Partial<Record<TeamId, ChatMessage[]>>
+  chat: ChatState
+  playPass: PlayPassPollView
   buzzer: BuzzerState
   viewer: RoomViewer
   game: GameView | null
@@ -138,10 +165,16 @@ export interface ClientToServerEvents {
   'room:create': (config: GameConfig, reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'room:join': (details: { code: string; name: string }, reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'room:choose-team': (team: TeamId, reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'room:assign-team': (details: { participantId: string; team: TeamId }, reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'room:randomize-teams': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'room:leave': () => void
   'game:start': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'game:action': (command: SpinSolveCommand, reply: (result: RoomResult<RoomSnapshot>) => void) => void
-  'chat:send': (text: string, reply: (result: RoomResult<ChatMessage>) => void) => void
+  'chat:send': (details: { text: string; team?: TeamId }, reply: (result: RoomResult<ChatMessage>) => void) => void
+  'feud:open-play-pass': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'feud:vote-play-pass': (choice: PlayPassChoice, reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'feud:decide-play-pass': (choice: PlayPassChoice, reply: (result: RoomResult<RoomSnapshot>) => void) => void
+  'feud:end-question': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'buzzer:arm': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'buzzer:close': (reply: (result: RoomResult<RoomSnapshot>) => void) => void
   'buzzer:reset': (reply: (result: RoomResult<RoomSnapshot>) => void) => void

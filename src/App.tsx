@@ -3,12 +3,25 @@ import type { CSSProperties, FormEvent } from 'react'
 import { FeudGameBuilder, saveFeudGamePackDraft } from './FeudGameBuilder'
 import { GamePackError, parseFeudGamePack } from './feudGamePack'
 import { multiplierForRound, starterFeudPack } from './gameData'
+import {
+  createFeudPresentation,
+  createLobbyPresentation,
+  createSpinPresentation,
+  openPresenterTab,
+  presenterRoomCode,
+  usePresentation,
+  usePresentationPublisher,
+  type FeudPresentation,
+  type LobbyPresentation,
+  type SpinPresentation,
+} from './presenterChannel'
 import { roomClient } from './roomClient'
 import type {
   ChatMessage,
   FeudGameConfig,
   FeudGamePack,
   GameConfig,
+  PlayPassChoice,
   RoomSnapshot,
   SpinSolveCommand,
   SpinSolveGameConfig,
@@ -53,7 +66,7 @@ interface ScoreCardProps {
   team: string
   score: number
   accent: ScoreAccent
-  onAdjust: (change: number) => void
+  onAdjust?: (change: number) => void
 }
 
 interface AnswerTileProps {
@@ -110,6 +123,22 @@ function Brand({ compact = false }: BrandProps) {
       <span className="brand__name">WANGZ</span>
       <span className="brand__sub">GAME NIGHT</span>
     </div>
+  )
+}
+
+function PresenterTabButton({ roomCode }: { roomCode: string }) {
+  const [status, setStatus] = useState('')
+  const open = () => {
+    const opened = openPresenterTab(roomCode)
+    setStatus(opened ? 'Presenter tab opened.' : 'Your browser blocked the presenter tab. Allow pop-ups, then try again.')
+    if (opened) window.setTimeout(() => setStatus(''), 1800)
+  }
+
+  return (
+    <span className="presenter-tab-action">
+      <button onClick={open}>Open presenter tab ↗</button>
+      {status && <small role="status">{status}</small>}
+    </span>
   )
 }
 
@@ -347,7 +376,7 @@ function JoinRoom({ onBack, onJoin }: JoinRoomProps) {
           <button className="primary-button" type="submit" disabled={isJoining || code.length !== 5 || !name.trim()}>
             {isJoining ? 'Joining…' : 'Enter the room'} {!isJoining && <Arrow />}
           </button>
-          <p className="privacy-note"><span aria-hidden="true">◈</span> Your team chat is visible only to teammates.</p>
+          <p className="privacy-note"><span aria-hidden="true">◈</span> Your huddle is visible to teammates and the host—not the other team.</p>
         </form>
       </section>
     </main>
@@ -401,12 +430,16 @@ interface TeamChatProps {
   messages: ChatMessage[]
   participantId: string
   onSend: (text: string) => Promise<void>
+  locked?: boolean
+  lockReason?: string | null
+  moderator?: boolean
 }
 
-function TeamChat({ team, teamLabel, messages, participantId, onSend }: TeamChatProps) {
+function TeamChat({ team, teamLabel, messages, participantId, onSend, locked = false, lockReason, moderator = false }: TeamChatProps) {
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [isSending, setIsSending] = useState(false)
+  const inputId = `team-message-${team}-${participantId}`
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -427,10 +460,10 @@ function TeamChat({ team, teamLabel, messages, participantId, onSend }: TeamChat
     <section className={`team-chat team-chat--${team}`} aria-label={`${teamLabel} private chat`}>
       <header>
         <div>
-          <span>Private team channel</span>
+          <span>{moderator ? 'Host-moderated huddle' : 'Private team huddle'}</span>
           <h2>{teamLabel}</h2>
         </div>
-        <span className="lock-label">◆ Team only</span>
+        <span className="lock-label">◆ Team + host</span>
       </header>
       <div className="chat-feed" aria-live="polite">
         {messages.length === 0 ? (
@@ -442,12 +475,113 @@ function TeamChat({ team, teamLabel, messages, participantId, onSend }: TeamChat
           </article>
         ))}
       </div>
+      {locked && !moderator && <p className="chat-lock-notice" role="status"><strong>Huddle paused.</strong> {lockReason}</p>}
       <form onSubmit={submit}>
-        <label className="sr-only" htmlFor="team-message">Message your team</label>
-        <input id="team-message" value={message} onChange={(event) => setMessage(event.target.value)} placeholder="Message your team…" maxLength={280} />
-        <button type="submit" disabled={isSending || !message.trim()} aria-label="Send message">↑</button>
+        <label className="sr-only" htmlFor={inputId}>Message {teamLabel}</label>
+        <input id={inputId} value={message} onChange={(event) => setMessage(event.target.value)} placeholder={locked && !moderator ? 'Huddle reopens after this question' : `Message ${teamLabel}…`} maxLength={280} disabled={locked && !moderator} />
+        <button type="submit" disabled={(locked && !moderator) || isSending || !message.trim()} aria-label="Send message">↑</button>
       </form>
       {error && <p className="chat-error" role="alert">{error}</p>}
+    </section>
+  )
+}
+
+function HostHuddles({ room }: { room: RoomSnapshot }) {
+  return (
+    <section className="host-huddles" aria-label="Host team huddles">
+      <header>
+        <div><span>Moderator desk</span><h2>Both team huddles</h2></div>
+        <p>Players only see their own team. Your messages are labeled Host.</p>
+      </header>
+      <div>
+        {(['one', 'two'] as TeamId[]).map((team) => (
+          <TeamChat
+            key={team}
+            team={team}
+            teamLabel={teamName(room, team)}
+            messages={room.teamChats[team] ?? []}
+            participantId="host"
+            moderator
+            onSend={(text) => roomClient.sendMessage(text, team).then(() => undefined)}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function PlayPassPanel({ room }: { room: RoomSnapshot }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  if (room.viewer.role !== 'player' || room.playPass.status === 'closed') return null
+
+  const activePlayer = room.participants.find((participant) => participant.id === room.playPass.activePlayerId)
+  const isActivePlayer = room.viewer.participantId === room.playPass.activePlayerId
+  const run = async (kind: 'vote' | 'decide', choice: PlayPassChoice) => {
+    setBusy(true)
+    setError('')
+    try {
+      if (kind === 'vote') await roomClient.votePlayPass(choice)
+      else await roomClient.decidePlayPass(choice)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'That choice did not register.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className={`play-pass-slip play-pass-slip--${room.playPass.status}`} aria-label="Play or pass huddle">
+      <header><span>Team decision slip</span><b>{room.playPass.status === 'open' ? 'Play or pass?' : `${room.playPass.decision === 'play' ? 'Play' : 'Pass'} is locked in`}</b></header>
+      {room.playPass.status === 'open' ? (
+        <>
+          <p>Vote to advise {activePlayer?.name ?? 'your active player'}. Tallies are anonymous; their final call decides.</p>
+          <div className="play-pass-tally">
+            {(['play', 'pass'] as PlayPassChoice[]).map((choice) => (
+              <button className={room.playPass.viewerVote === choice ? 'is-selected' : ''} disabled={busy} key={choice} onClick={() => run('vote', choice)}>
+                <span>{choice}</span><strong>{room.playPass.votes[choice]}</strong><small>{room.playPass.viewerVote === choice ? 'Your vote' : 'Team votes'}</small>
+              </button>
+            ))}
+          </div>
+          {isActivePlayer ? (
+            <div className="play-pass-final"><span>Your call, {activePlayer?.name}</span><div><button disabled={busy} onClick={() => run('decide', 'play')}>Final: Play</button><button disabled={busy} onClick={() => run('decide', 'pass')}>Final: Pass</button></div></div>
+          ) : <p className="play-pass-waiting">Waiting for {activePlayer?.name ?? 'the active player'} to make the final call.</p>}
+        </>
+      ) : (
+        <p className="play-pass-result">{teamName(room, room.playPass.controllingTeam ?? room.viewer.team ?? 'one')} is answering. Their huddle is paused until the host ends the question.</p>
+      )}
+      {error && <p className="chat-error" role="alert">{error}</p>}
+    </section>
+  )
+}
+
+function HostPlayPassPanel({ room }: { room: RoomSnapshot }) {
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const winner = room.buzzer.winner
+  const activePlayer = room.participants.find((participant) => participant.id === room.playPass.activePlayerId)
+  const run = async (action: 'open' | 'end') => {
+    setBusy(true)
+    setError('')
+    try {
+      if (action === 'open') await roomClient.openPlayPass()
+      else await roomClient.endFeudQuestion()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not update the play/pass huddle.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <section className={`host-play-pass host-play-pass--${room.playPass.status}`}>
+      <div><span>After the face-off</span><strong>{room.playPass.status === 'closed' ? 'Play / Pass' : room.playPass.status === 'open' ? `${activePlayer?.name ?? 'Active player'} decides` : `${room.playPass.decision === 'play' ? 'Play' : 'Pass'} · ${teamName(room, room.playPass.controllingTeam ?? 'one')} answers`}</strong></div>
+      {room.playPass.status === 'closed' ? (
+        <button disabled={!winner || busy} onClick={() => run('open')}>{winner ? `Open ${teamName(room, winner.team)} poll` : 'Waiting for face-off'}</button>
+      ) : (
+        <div className="host-play-pass__status"><span>Play <b>{room.playPass.votes.play}</b></span><span>Pass <b>{room.playPass.votes.pass}</b></span><button disabled={busy} onClick={() => run('end')}>{room.playPass.status === 'open' ? 'Cancel poll' : 'End question & unlock'}</button></div>
+      )}
+      {error && <small role="alert">{error}</small>}
     </section>
   )
 }
@@ -462,9 +596,12 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
   const [copied, setCopied] = useState(false)
   const [error, setError] = useState('')
   const [isStarting, setIsStarting] = useState(false)
+  const [isRandomizing, setIsRandomizing] = useState(false)
   const teamOneReady = room.participants.some((player) => player.team === 'one')
   const teamTwoReady = room.participants.some((player) => player.team === 'two')
   const canStart = teamOneReady && teamTwoReady
+  const presentation = useMemo(() => createLobbyPresentation(room), [room])
+  usePresentationPublisher(presentation)
 
   const copyCode = async () => {
     await navigator.clipboard.writeText(room.code)
@@ -483,11 +620,23 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
     }
   }
 
+  const randomizeTeams = async () => {
+    setError('')
+    setIsRandomizing(true)
+    try {
+      await roomClient.randomizeTeams()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not randomize the teams.')
+    } finally {
+      setIsRandomizing(false)
+    }
+  }
+
   return (
     <main className="room-shell">
       <header className="room-nav">
         <Brand compact />
-        <button className="text-button text-button--light" onClick={onExit}>Close room</button>
+        <div className="host-view-actions"><span>Moderator tab</span><PresenterTabButton roomCode={room.code} /><button className="text-button text-button--light" onClick={onExit}>Close room</button></div>
       </header>
       <section className="room-code-hero">
         <div>
@@ -501,14 +650,16 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
         <div className="lobby-status">
           <span className="live-dot" />
           <strong>{room.participants.length} player{room.participants.length === 1 ? '' : 's'} connected</strong>
-          <span>Waiting for one player on each team</span>
+          <span>Host can moderate both private huddles</span>
         </div>
+        <div className="lobby-team-tools"><span>Players can pick a side, or let the host deal the teams.</span><button onClick={randomizeTeams} disabled={room.participants.length < 2 || isRandomizing}>{isRandomizing ? 'Dealing teams…' : 'Randomize teams'}</button></div>
         <div className="roster-grid">
           <TeamRoster room={room} team="one" />
           <TeamRoster room={room} team="two" />
         </div>
+        <HostHuddles room={room} />
         <div className="host-lobby-footer">
-          <p><span>◆</span><strong>Team chats are private.</strong> The host and opposing team cannot read them.</p>
+          <p><span>◆</span><strong>Huddles are team-private and host-moderated.</strong> Opposing teams never receive each other’s messages.</p>
           <div>
             {error && <p className="form-error" role="alert">{error}</p>}
             <button className="primary-button" onClick={start} disabled={!canStart || isStarting}>
@@ -726,7 +877,7 @@ function PlayerRoom({ room, onChooseTeam, onSendMessage, onGameAction, onBuzz, o
             <div className="player-room__intro">
               <p className="eyebrow">You’re in</p>
               <h1>Choose your<br /><em>side.</em></h1>
-              <p>Choose carefully—your team locks immediately to keep both chats private.</p>
+              <p>Pick a side. The host can rebalance teams before the game; each huddle always follows the server’s current roster.</p>
             </div>
             <div className="roster-grid roster-grid--selectable">
               <TeamRoster room={room} team="one" selectable onSelect={chooseTeam} />
@@ -763,7 +914,20 @@ function PlayerRoom({ room, onChooseTeam, onSendMessage, onGameAction, onBuzz, o
         ) : (
           <>
             {(() => {
-              const chat = <TeamChat team={viewer.team} teamLabel={teamName(room, viewer.team)} messages={room.messages} participantId={viewer.participantId} onSend={onSendMessage} />
+              const chat = (
+                <div className="player-huddle-stack">
+                  <PlayPassPanel room={room} />
+                  <TeamChat
+                    team={viewer.team}
+                    teamLabel={teamName(room, viewer.team)}
+                    messages={room.messages}
+                    participantId={viewer.participantId}
+                    onSend={onSendMessage}
+                    locked={room.chat.lockedTeam === viewer.team}
+                    lockReason={room.chat.reason}
+                  />
+                </div>
+              )
               const props: PlayerBuzzerVariantProps = { room, participantId: viewer.participantId, team: viewer.team!, isBuzzing, error: buzzError, onBuzz: buzz, chat }
               if (variant === 'B') return <PlayerBuzzerVariantB {...props} />
               if (variant === 'C') return <PlayerBuzzerVariantC {...props} />
@@ -786,10 +950,10 @@ function ScoreCard({ team, score, accent, onAdjust }: ScoreCardProps) {
       </div>
       <div className="score-card__points">
         <strong>{score}</strong>
-        <div className="score-adjust" aria-label={`Adjust ${team} score`}>
+        {onAdjust && <div className="score-adjust" aria-label={`Adjust ${team} score`}>
           <button onClick={() => onAdjust(-5)} aria-label={`Subtract 5 points from ${team}`}>−</button>
           <button onClick={() => onAdjust(5)} aria-label={`Add 5 points to ${team}`}>+</button>
-        </div>
+        </div>}
       </div>
     </section>
   )
@@ -1035,6 +1199,8 @@ function SpinSolveHostGame({ room, onAction, onExit, onReplay }: {
   onExit: () => void
   onReplay: () => void
 }) {
+  const presentation = useMemo(() => createSpinPresentation(room), [room])
+  usePresentationPublisher(presentation)
   if (room.config.kind !== 'spin-solve' || room.game?.kind !== 'spin-solve') return null
   const game = room.game
   const finale = game.phase === 'bonus-letters' || game.phase === 'bonus-solving' || game.phase === 'complete'
@@ -1044,7 +1210,7 @@ function SpinSolveHostGame({ room, onAction, onExit, onReplay }: {
       <header className="spin-topbar">
         <Brand compact />
         <div><span>Room {room.code}</span><b>{finale ? 'Bonus finale' : `Round ${game.round} of ${game.totalRounds}`}</b></div>
-        <button className="text-button text-button--light" onClick={onExit}>Exit game</button>
+        <div className="host-view-actions"><span>Moderator tab</span><PresenterTabButton roomCode={room.code} /><button className="text-button text-button--light" onClick={onExit}>Exit game</button></div>
       </header>
       <div className="spin-game-stage">
         <SpinScoreboard game={game} config={room.config} />
@@ -1190,6 +1356,19 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
     () => revealed.reduce((sum, index) => sum + question.answers[index].points * multiplier, 0),
     [revealed, question, multiplier],
   )
+  const presentation = useMemo(() => createFeudPresentation({
+    room,
+    config,
+    round,
+    multiplier,
+    question,
+    revealed,
+    strikes,
+    scores,
+    roundPot,
+    winner,
+  }), [room, config, round, multiplier, question, revealed, strikes, scores, roundPot, winner])
+  usePresentationPublisher(presentation)
 
   const revealAnswer = (index: number) => {
     setRevealed((current) => current.includes(index) ? current : [...current, index])
@@ -1198,6 +1377,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
   const addStrike = () => setStrikes((current) => Math.min(3, current + 1))
 
   const awardRound = (teamIndex: TeamIndex) => {
+    void roomClient.endFeudQuestion()
     void roomClient.nextBuzzerPair()
     const nextScores: [number, number] = [scores[0], scores[1]]
     nextScores[teamIndex] += roundPot
@@ -1221,6 +1401,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
   }
 
   const newQuestion = () => {
+    void roomClient.endFeudQuestion()
     void roomClient.resetBuzzer()
     setQuestionIndex((current) => (current + 1) % config.pack.questions.length)
     setRevealed([])
@@ -1247,7 +1428,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
       <header className="game-topbar">
         <Brand compact />
         <div className="round-indicator"><span>Room {roomCode}</span><span>Round {round}</span><b>{multiplier}× points</b></div>
-        <button className="text-button text-button--light" onClick={onExit}>Exit game</button>
+        <div className="host-view-actions"><span>Moderator tab</span><PresenterTabButton roomCode={roomCode} /><button className="text-button text-button--light" onClick={onExit}>Exit game</button></div>
       </header>
 
       <section className="score-row">
@@ -1279,6 +1460,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
 
       <section className="host-controls">
         <HostBuzzerPanel room={room} />
+        <HostPlayPassPanel room={room} />
         <div className="strike-panel">
           <span>Strikes</span>
           <div className="strike-marks" aria-label={`${strikes} strikes`}>
@@ -1298,6 +1480,8 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
         </div>
       </section>
 
+      <HostHuddles room={room} />
+
       <footer className="game-help">Host shortcuts: <kbd>Z</kbd> opens/closes buzzer · <kbd>1</kbd>–<kbd>8</kbd> reveal answers · <kbd>X</kbd> adds a strike · first team to {config.winningScore} wins</footer>
 
       {winner && <WinnerModal winner={winner.name} score={winner.score} onReplay={onReplay} onHome={onExit} />}
@@ -1305,7 +1489,124 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
   )
 }
 
+function PresenterLobby({ state }: { state: LobbyPresentation }) {
+  const teams: Record<TeamId, string[]> = { one: [], two: [] }
+  for (const participant of state.participants) {
+    if (participant.team) teams[participant.team].push(participant.name)
+  }
+
+  return (
+    <main className="presenter-lobby">
+      <header className="presenter-topbar"><Brand compact /><span className="presenter-live"><i /> Presenter display</span><b>Room {state.code}</b></header>
+      <section className="presenter-lobby__hero">
+        <p className="eyebrow">Players, grab a phone and join</p>
+        <h1>Room <em>{state.code}</em></h1>
+        <p>{state.game} · Pick your team after joining.</p>
+      </section>
+      <section className="presenter-rosters">
+        {(['one', 'two'] as TeamId[]).map((team) => (
+          <article className={`presenter-roster presenter-roster--${team}`} key={team}>
+            <span>{team === 'one' ? 'Team one' : 'Team two'} · {teams[team].length} ready</span>
+            <h2>{team === 'one' ? state.teamOne : state.teamTwo}</h2>
+            <div>{teams[team].length ? teams[team].map((name) => <b key={name}>{name}</b>) : <i>Seats are open</i>}</div>
+          </article>
+        ))}
+      </section>
+      <footer className="presenter-footer">The moderator is setting the table. This display will switch when the game begins.</footer>
+    </main>
+  )
+}
+
+function PresenterAnswerTile({ answer, number, revealed }: { answer: FeudPresentation['question']['answers'][number]; number: number; revealed: boolean }) {
+  return (
+    <div className={`answer-tile presenter-answer-tile ${revealed ? 'is-revealed' : ''}`} aria-label={revealed ? `${answer.label}, ${answer.points} points` : `Answer ${number} hidden`}>
+      <div className="answer-tile__face answer-tile__front" aria-hidden={revealed}><b>{number}</b><small>Answer</small></div>
+      <div className="answer-tile__face answer-tile__back" aria-hidden={!revealed}><b>{answer.label}</b><strong>{answer.points}</strong></div>
+    </div>
+  )
+}
+
+function PresenterFeud({ state }: { state: FeudPresentation }) {
+  const controlTeam = state.decision.controllingTeam === 'one' ? state.teamOne : state.teamTwo
+  return (
+    <main className="game-shell presenter-game-shell">
+      <header className="presenter-topbar presenter-topbar--game"><Brand compact /><span className="presenter-live"><i /> Live board</span><div><b>Room {state.code}</b><b>Round {state.round}</b><strong>{state.multiplier}× points</strong></div></header>
+      <section className="score-row">
+        <ScoreCard team={state.teamOne} score={state.scores[0]} accent="gold" />
+        <div className="round-pot" aria-label={`${state.roundPot} points in the round`}><span>Round pot</span><strong>{state.roundPot}</strong></div>
+        <ScoreCard team={state.teamTwo} score={state.scores[1]} accent="coral" />
+      </section>
+      <section className="question-board presenter-question-board">
+        <header className="question-board__header"><span>{state.title} · We asked 100 people…</span><b>First to {state.winningScore}</b></header>
+        {state.buzzer.status === 'armed' && <div className="buzzer-board-banner buzzer-board-banner--armed" role="status"><span className="live-dot" /> Buzzer is live</div>}
+        {state.buzzer.winner && <div className={`buzzer-board-banner buzzer-board-banner--winner buzzer-board-banner--${state.buzzer.winner.team}`} role="status"><Bolt size={20} /><strong>{state.buzzer.winner.playerName}</strong><span>{state.buzzer.winner.team === 'one' ? state.teamOne : state.teamTwo} buzzed first</span></div>}
+        {state.decision.status === 'open' && <div className="presenter-decision"><span>Team huddle</span><strong>{state.decision.activePlayerName ?? state.teamOne} is choosing Play or Pass</strong></div>}
+        {state.decision.status === 'decided' && <div className="presenter-decision presenter-decision--locked"><span>{state.decision.choice}</span><strong>{controlTeam} answer the question</strong></div>}
+        <div className="presenter-host-cue">
+          <span>Question with the host</span>
+          <h1>Listen to the host</h1>
+          <p>Answers appear here as they’re revealed.</p>
+        </div>
+        <div className="answers-grid">
+          {state.question.answers.map((answer, index) => <PresenterAnswerTile key={answer.id} answer={answer} number={index + 1} revealed={state.revealed.includes(index)} />)}
+        </div>
+      </section>
+      <section className="presenter-round-status">
+        <span>Strikes</span>
+        <div className="strike-marks" aria-label={`${state.strikes} strikes`}>{[0, 1, 2].map((index) => <i key={index} className={index < state.strikes ? 'is-active' : ''}>×</i>)}</div>
+        <p>Answers and scores update live from the moderator tab.</p>
+      </section>
+      {state.winner && <div className="presenter-winner" role="status"><p className="eyebrow">That’s the game</p><h2>{state.winner.name}<br /><em>take the night!</em></h2><div className="winner-score"><strong>{state.winner.score}</strong><span>points</span></div></div>}
+    </main>
+  )
+}
+
+function PresenterSpin({ state }: { state: SpinPresentation }) {
+  const finale = state.game.phase === 'bonus-letters' || state.game.phase === 'bonus-solving' || state.game.phase === 'complete'
+  return (
+    <main className="spin-game-shell presenter-spin-shell">
+      <header className="presenter-topbar presenter-topbar--spin"><Brand compact /><span className="presenter-live"><i /> Live board</span><div><b>Room {state.code}</b><strong>{finale ? 'Bonus finale' : `Round ${state.game.round} of ${state.game.totalRounds}`}</strong></div></header>
+      <div className="spin-game-stage">
+        <SpinScoreboard game={state.game} config={state.config} />
+        <section className="spin-puzzle-stage">
+          <div className="spin-puzzle-heading"><span>{state.game.category}</span><p aria-live="polite">{state.game.message}</p></div>
+          <PuzzleTiles maskedPuzzle={state.game.maskedPuzzle} />
+        </section>
+        <div className="presenter-spin-lower">
+          <SpinnerWheel game={state.game} />
+          <section className="presenter-spin-callout"><span>{state.game.phase === 'complete' ? 'Game complete' : 'Now playing'}</span><h2>{state.game.message}</h2><p>{state.game.winnerTeam ? `${teamLabel(state.config, state.game.winnerTeam)} win the night.` : `${teamLabel(state.config, state.game.activeTeam)} control the wheel.`}</p>{state.game.bonusDeadline && state.game.phase === 'bonus-solving' && <Countdown deadline={state.game.bonusDeadline} />}</section>
+        </div>
+      </div>
+    </main>
+  )
+}
+
+function PresenterScreen({ roomCode }: { roomCode: string }) {
+  const state = usePresentation(roomCode)
+
+  useEffect(() => {
+    const previousTitle = document.title
+    document.title = `Presenter · Room ${roomCode}`
+    return () => { document.title = previousTitle }
+  }, [roomCode])
+
+  if (!state) {
+    return (
+      <main className="presenter-waiting">
+        <Brand />
+        <span className="presenter-live"><i /> Presenter display</span>
+        <h1>Waiting for<br /><em>the moderator.</em></h1>
+        <p>Keep the moderator tab open on this device. Room {roomCode} will appear here automatically.</p>
+      </main>
+    )
+  }
+  if (state.mode === 'lobby') return <PresenterLobby state={state} />
+  if (state.mode === 'feud') return <PresenterFeud state={state} />
+  return <PresenterSpin state={state} />
+}
+
 export default function App() {
+  const presentationCode = useMemo(presenterRoomCode, [])
   const [screen, setScreen] = useState<Screen>('home')
   const [config, setConfig] = useState<GameConfig | null>(null)
   const [selectedGame, setSelectedGame] = useState<GameConfig['kind']>('feud')
@@ -1317,14 +1618,17 @@ export default function App() {
     window.scrollTo({ top: 0, behavior: 'auto' })
   }, [screen])
 
-  useEffect(() => roomClient.subscribe(
-    (snapshot) => setRoom(snapshot),
-    (message) => {
-      setRoom(null)
-      setRoomNotice(message)
-      setScreen('home')
-    },
-  ), [])
+  useEffect(() => {
+    if (presentationCode) return
+    return roomClient.subscribe(
+      (snapshot) => setRoom(snapshot),
+      (message) => {
+        setRoom(null)
+        setRoomNotice(message)
+        setScreen('home')
+      },
+    )
+  }, [presentationCode])
 
   const createRoom = async (nextConfig: GameConfig) => {
     const snapshot = await roomClient.createRoom(nextConfig)
@@ -1336,14 +1640,12 @@ export default function App() {
   const joinRoom = async (code: string, name: string) => {
     const snapshot = await roomClient.joinRoom(code, name)
     setRoom(snapshot)
-    setConfig(snapshot.config)
     setScreen('player-room')
   }
 
   const startGame = async () => {
     const snapshot = await roomClient.startGame()
     setRoom(snapshot)
-    setConfig(snapshot.config)
     setScreen('game')
   }
 
@@ -1368,6 +1670,8 @@ export default function App() {
   const gameAction = (command: SpinSolveCommand) => roomClient.gameAction(command).then((snapshot) => {
     setRoom(snapshot)
   })
+
+  if (presentationCode) return <PresenterScreen roomCode={presentationCode} />
 
   return (
     <>

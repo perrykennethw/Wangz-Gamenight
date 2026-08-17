@@ -4,6 +4,7 @@ import type {
   BuzzerState,
   ClientToServerEvents,
   GameConfig,
+  PlayPassChoice,
   RoomResult,
   RoomSnapshot,
   ServerToClientEvents,
@@ -52,6 +53,18 @@ class RoomClient {
     })
   }
 
+  assignTeam(participantId: string, team: TeamId): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit('room:assign-team', { participantId, team }, (result) => this.finish(result, resolve, reject))
+    })
+  }
+
+  randomizeTeams(): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit('room:randomize-teams', (result) => this.finish(result, resolve, reject))
+    })
+  }
+
   startGame(): Promise<RoomSnapshot> {
     return new Promise((resolve, reject) => {
       this.socket.emit('game:start', (result) => this.finish(result, resolve, reject))
@@ -64,9 +77,33 @@ class RoomClient {
     })
   }
 
-  sendMessage(text: string): Promise<ChatMessage> {
+  sendMessage(text: string, team?: TeamId): Promise<ChatMessage> {
     return new Promise((resolve, reject) => {
-      this.socket.emit('chat:send', text, (result) => this.finish(result, resolve, reject))
+      this.socket.emit('chat:send', { text, team }, (result) => this.finish(result, resolve, reject))
+    })
+  }
+
+  openPlayPass(): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit('feud:open-play-pass', (result) => this.finish(result, resolve, reject))
+    })
+  }
+
+  votePlayPass(choice: PlayPassChoice): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit('feud:vote-play-pass', choice, (result) => this.finish(result, resolve, reject))
+    })
+  }
+
+  decidePlayPass(choice: PlayPassChoice): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit('feud:decide-play-pass', choice, (result) => this.finish(result, resolve, reject))
+    })
+  }
+
+  endFeudQuestion(): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit('feud:end-question', (result) => this.finish(result, resolve, reject))
     })
   }
 

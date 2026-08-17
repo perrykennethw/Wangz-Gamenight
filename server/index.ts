@@ -9,6 +9,8 @@ import type {
   ClientToServerEvents,
   GameConfig,
   Participant,
+  PlayPassChoice,
+  PlayPassPollView,
   RoomResult,
   RoomSnapshot,
   ServerToClientEvents,
@@ -30,6 +32,15 @@ interface Room {
   participants: Map<string, Participant>
   connections: Map<string, Connection>
   messages: Record<TeamId, ChatMessage[]>
+  chatLockedTeam: TeamId | null
+  playPass: {
+    status: 'closed' | 'open' | 'decided'
+    team: TeamId | null
+    activePlayerId: string | null
+    votes: Map<string, PlayPassChoice>
+    decision: PlayPassChoice | null
+    controllingTeam: TeamId | null
+  }
   game: SpinSolveState | null
   buzzer: BuzzerState
 }
@@ -118,6 +129,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
+function isTeamId(value: unknown): value is TeamId {
+  return value === 'one' || value === 'two'
+}
+
+function isPlayPassChoice(value: unknown): value is PlayPassChoice {
+  return value === 'play' || value === 'pass'
+}
+
 function normalizeGameConfig(value: unknown): GameConfig {
   if (!isRecord(value)) throw new Error('Choose a game before opening the room.')
   const teamOne = typeof value.teamOne === 'string' ? value.teamOne.trim().slice(0, 24) : ''
@@ -154,6 +173,50 @@ function roomFor(socketId: string): Room | undefined {
   return code ? rooms.get(code) : undefined
 }
 
+function closedPlayPass(): Room['playPass'] {
+  return {
+    status: 'closed',
+    team: null,
+    activePlayerId: null,
+    votes: new Map(),
+    decision: null,
+    controllingTeam: null,
+  }
+}
+
+function otherTeam(team: TeamId): TeamId {
+  return team === 'one' ? 'two' : 'one'
+}
+
+function endFeudQuestion(room: Room): void {
+  room.chatLockedTeam = null
+  room.playPass = closedPlayPass()
+}
+
+function playPassViewFor(room: Room, connection: Connection, participant?: Participant): PlayPassPollView {
+  const canView = connection.role === 'host' || (participant?.team && participant.team === room.playPass.team)
+  if (!canView) {
+    return {
+      ...closedPlayPass(),
+      votes: { play: 0, pass: 0 },
+      viewerVote: null,
+    }
+  }
+
+  let play = 0
+  let pass = 0
+  for (const choice of room.playPass.votes.values()) choice === 'play' ? play++ : pass++
+  return {
+    status: room.playPass.status,
+    team: room.playPass.team,
+    activePlayerId: room.playPass.activePlayerId,
+    votes: { play, pass },
+    viewerVote: participant ? room.playPass.votes.get(participant.id) ?? null : null,
+    decision: room.playPass.decision,
+    controllingTeam: room.playPass.controllingTeam,
+  }
+}
+
 function snapshotFor(room: Room, socketId: string): RoomSnapshot {
   const connection = room.connections.get(socketId)
   if (!connection) throw new Error('Socket is not connected to this room.')
@@ -162,12 +225,33 @@ function snapshotFor(room: Room, socketId: string): RoomSnapshot {
     ? room.participants.get(connection.participantId)
     : undefined
 
+  const teamChats: Partial<Record<TeamId, ChatMessage[]>> = connection.role === 'host'
+    ? { one: room.messages.one, two: room.messages.two }
+    : participant?.team
+      ? { [participant.team]: room.messages[participant.team] }
+      : {}
+
+  const config: RoomSnapshot['config'] = connection.role === 'host' || room.config.kind === 'spin-solve'
+    ? room.config
+    : {
+        kind: 'feud',
+        teamOne: room.config.teamOne,
+        teamTwo: room.config.teamTwo,
+        winningScore: room.config.winningScore,
+      }
+
   return {
     code: room.code,
     phase: room.phase,
-    config: room.config,
+    config,
     participants: [...room.participants.values()],
     messages: participant?.team ? room.messages[participant.team] : [],
+    teamChats,
+    chat: {
+      lockedTeam: room.chatLockedTeam,
+      reason: room.chatLockedTeam ? 'The answering team is live. This huddle reopens when the host ends the question.' : null,
+    },
+    playPass: playPassViewFor(room, connection, participant),
     buzzer: room.buzzer,
     viewer: connection.role === 'host'
       ? { role: 'host' }
@@ -213,6 +297,8 @@ function leaveCurrentRoom(socket: Socket<ClientToServerEvents, ServerToClientEve
   if (connection?.participantId) {
     const participant = room.participants.get(connection.participantId)
     room.participants.delete(connection.participantId)
+    room.playPass.votes.delete(connection.participantId)
+    if (room.playPass.activePlayerId === connection.participantId) endFeudQuestion(room)
     if (participant?.team && room.buzzer.representatives[participant.team] === participant.id) {
       room.buzzer = {
         status: 'idle',
@@ -247,6 +333,8 @@ io.on('connection', (socket) => {
       participants: new Map(),
       connections: new Map([[socket.id, { role: 'host' }]]),
       messages: { one: [], two: [] },
+      chatLockedTeam: null,
+      playPass: closedPlayPass(),
       game: null,
       buzzer: { status: 'idle', winner: null, representatives: { one: null, two: null } },
     }
@@ -288,6 +376,7 @@ io.on('connection', (socket) => {
     if (!room || !participant || connection?.role !== 'player') {
       return reply({ ok: false, error: 'Join a room before choosing a team.' })
     }
+    if (!isTeamId(team)) return reply({ ok: false, error: 'Choose one of the two teams.' })
     if (room.phase !== 'lobby') return reply({ ok: false, error: 'Teams are locked after the game starts.' })
     if (participant.team && participant.team !== team) {
       return reply({ ok: false, error: 'Your team is locked to keep both chats private.' })
@@ -299,26 +388,139 @@ io.on('connection', (socket) => {
     syncRoom(room)
   })
 
-  socket.on('chat:send', (text, reply) => {
+  socket.on('room:assign-team', ({ participantId, team }, reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can assign teams.' })
+    if (room.phase !== 'lobby') return reply({ ok: false, error: 'Teams are locked after the game starts.' })
+    if (!isTeamId(team)) return reply({ ok: false, error: 'Choose one of the two teams.' })
+    const participant = room.participants.get(participantId)
+    if (!participant) return reply({ ok: false, error: 'Choose a connected player.' })
+
+    participant.team = team
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('room:randomize-teams', (reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can randomize teams.' })
+    if (room.phase !== 'lobby') return reply({ ok: false, error: 'Teams are locked after the game starts.' })
+
+    const participants = [...room.participants.values()]
+    for (let index = participants.length - 1; index > 0; index--) {
+      const swapIndex = Math.floor(Math.random() * (index + 1))
+      ;[participants[index], participants[swapIndex]] = [participants[swapIndex], participants[index]]
+    }
+    participants.forEach((participant, index) => { participant.team = index % 2 === 0 ? 'one' : 'two' })
+
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('chat:send', ({ text, team }, reply) => {
     const room = roomFor(socket.id)
     const connection = room?.connections.get(socket.id)
     const participant = connection?.participantId ? room?.participants.get(connection.participantId) : undefined
-    const cleanText = text.trim().slice(0, 280)
+    const cleanText = typeof text === 'string' ? text.trim().slice(0, 280) : ''
 
-    if (!room || !participant?.team) return reply({ ok: false, error: 'Choose a team before chatting.' })
+    if (!room || !connection) return reply({ ok: false, error: 'Join a room before chatting.' })
     if (!cleanText) return reply({ ok: false, error: 'Write a message before sending.' })
+    const messageTeam = connection.role === 'host' ? team : participant?.team
+    if (!isTeamId(messageTeam)) return reply({ ok: false, error: 'Choose a team before chatting.' })
+    if (connection.role === 'player' && room.chatLockedTeam === messageTeam) {
+      return reply({ ok: false, error: 'Your team is answering now. The huddle reopens when the host ends the question.' })
+    }
 
     const message: ChatMessage = {
       id: randomUUID(),
-      senderId: participant.id,
-      senderName: participant.name,
-      team: participant.team,
+      senderId: participant?.id ?? 'host',
+      senderName: participant?.name ?? 'Host',
+      team: messageTeam,
       text: cleanText,
       sentAt: Date.now(),
     }
-    room.messages[participant.team].push(message)
-    room.messages[participant.team] = room.messages[participant.team].slice(-100)
+    room.messages[messageTeam].push(message)
+    room.messages[messageTeam] = room.messages[messageTeam].slice(-100)
     reply({ ok: true, data: message })
+    syncRoom(room)
+  })
+
+  socket.on('feud:open-play-pass', (reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can open a play/pass huddle.' })
+    if (room.phase !== 'playing' || room.config.kind !== 'feud') {
+      return reply({ ok: false, error: 'Start a Family Feud game before opening a play/pass huddle.' })
+    }
+    const winner = room.buzzer.winner
+    const activePlayer = winner ? room.participants.get(winner.participantId) : undefined
+    if (!winner || activePlayer?.team !== winner.team) {
+      return reply({ ok: false, error: 'Finish the face-off before opening the play/pass huddle.' })
+    }
+
+    room.chatLockedTeam = null
+    room.playPass = {
+      status: 'open',
+      team: winner.team,
+      activePlayerId: winner.participantId,
+      votes: new Map(),
+      decision: null,
+      controllingTeam: null,
+    }
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('feud:vote-play-pass', (choice, reply) => {
+    const room = roomFor(socket.id)
+    const connection = room?.connections.get(socket.id)
+    const participant = connection?.participantId ? room?.participants.get(connection.participantId) : undefined
+    if (!room || !participant?.team || connection?.role !== 'player') {
+      return reply({ ok: false, error: 'Join a team before voting.' })
+    }
+    if (!isPlayPassChoice(choice)) return reply({ ok: false, error: 'Vote Play or Pass.' })
+    if (room.playPass.status !== 'open' || room.playPass.team !== participant.team) {
+      return reply({ ok: false, error: 'There is no play/pass vote open for your team.' })
+    }
+
+    room.playPass.votes.set(participant.id, choice)
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('feud:decide-play-pass', (choice, reply) => {
+    const room = roomFor(socket.id)
+    const connection = room?.connections.get(socket.id)
+    const participant = connection?.participantId ? room?.participants.get(connection.participantId) : undefined
+    if (!room || !participant || connection?.role !== 'player') {
+      return reply({ ok: false, error: 'Join a team before making the final choice.' })
+    }
+    if (!isPlayPassChoice(choice)) return reply({ ok: false, error: 'Choose Play or Pass.' })
+    if (room.playPass.status !== 'open' || room.playPass.activePlayerId !== participant.id || !room.playPass.team) {
+      return reply({ ok: false, error: 'Only the designated active player can make the final choice.' })
+    }
+
+    const controllingTeam = choice === 'play' ? room.playPass.team : otherTeam(room.playPass.team)
+    room.playPass.status = 'decided'
+    room.playPass.decision = choice
+    room.playPass.controllingTeam = controllingTeam
+    room.chatLockedTeam = controllingTeam
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('feud:end-question', (reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can end the active question.' })
+    if (room.config.kind !== 'feud') return reply({ ok: false, error: 'Play/pass controls are only available in Family Feud.' })
+
+    endFeudQuestion(room)
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
     syncRoom(room)
   })
 
@@ -331,6 +533,7 @@ io.on('connection', (socket) => {
     if (!hasTeamOne || !hasTeamTwo) return reply({ ok: false, error: 'Each team needs at least one player.' })
 
     room.phase = 'playing'
+    endFeudQuestion(room)
     room.buzzer = {
       status: 'idle',
       winner: null,
@@ -399,6 +602,7 @@ io.on('connection', (socket) => {
     })
     if (!representativesReady) return reply({ ok: false, error: 'Choose one representative from each team before arming the buzzer.' })
 
+    if (room.config.kind === 'feud') endFeudQuestion(room)
     room.buzzer = { ...room.buzzer, status: 'armed', winner: null }
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })

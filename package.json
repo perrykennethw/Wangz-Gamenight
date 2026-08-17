@@ -15,6 +15,8 @@
     "test:game-packs": "tsx server/feudGamePack.test.ts",
     "test:spin-solve": "tsx server/spinSolve.test.ts",
     "test:privacy": "tsx server/privacy.integration.ts",
+    "test:moderated-chat": "tsx server/moderatedChat.integration.ts",
+    "test:presenter": "tsx server/presenter.test.ts",
     "server": "tsx server/index.ts",
     "start": "node server-dist/server/index.js",
     "preview": "vite preview"
