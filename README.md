@@ -47,6 +47,8 @@ All shipped cues are original procedural tones synthesized at runtime by the Web
 
 Before opening a room, the host can use **Build or edit** to author a question pack or upload a previously exported `.json` pack. Builder drafts save in that browser automatically; **Download JSON** creates a portable copy. The server validates and snapshots the selected pack when the room opens, so later draft edits do not change a game in progress.
 
+The importer also accepts the alternate host format built around `rounds[].question` and `answers[].ans` / `pnt`. Those regular rounds are converted to the Wangz game-pack format and can be edited or exported normally after import. `settings`, `multiply`, `final_round`, and `final_round_timers` have no equivalent in the current game and are ignored.
+
 - Click an answer or press `1`–`8` to reveal it.
 - Click **Add strike** or press `X` to mark a strike.
 - Choose one face-off representative from each team, then press `Z` or use the buzzer panel to open and close their buzzers. The server rejects teammates outside the selected pair and accepts only the first representative’s buzz.
