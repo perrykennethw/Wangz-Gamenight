@@ -9,6 +9,7 @@ import {
 } from "./avatarCatalog";
 import { FeudGameBuilder, saveFeudGamePackDraft } from "./FeudGameBuilder";
 import { GamePackError, parseFeudGamePack } from "./feudGamePack";
+import { gameAudio, type GameAudioCue, type GameAudioState } from "./gameAudio";
 import { multiplierForRound, starterFeudPack } from "./gameData";
 import {
   createFeudPresentation,
@@ -155,6 +156,83 @@ function Brand({ compact = false }: BrandProps) {
       <span className="brand__name">WANGZ</span>
       <span className="brand__sub">GAME NIGHT</span>
     </div>
+  );
+}
+
+const audioCueLabels: Record<GameAudioCue, string> = {
+  opening: "Opening theme",
+  wrong: "Wrong answer",
+  repeat: "Repeat answer",
+};
+
+function useGameAudioState(): GameAudioState {
+  const [state, setState] = useState<GameAudioState>(() => gameAudio.getState());
+  useEffect(() => gameAudio.subscribe(setState), []);
+  return state;
+}
+
+function GameAudioControls() {
+  const audio = useGameAudioState();
+  const muted = !audio.enabled || audio.volume === 0;
+  const status = muted
+    ? "Muted"
+    : audio.playingCue
+      ? `Playing ${audioCueLabels[audio.playingCue].toLowerCase()}`
+      : "Ready";
+
+  return (
+    <section
+      className={`game-audio-panel ${muted ? "is-muted" : ""} ${audio.playingCue ? "is-playing" : ""}`}
+      aria-label="Game audio controls"
+    >
+      <div className="game-audio-panel__status">
+        <span aria-hidden="true">♫</span>
+        <div>
+          <small>Host audio</small>
+          <strong aria-live="polite">{status}</strong>
+        </div>
+      </div>
+      <button
+        type="button"
+        className="game-audio-panel__toggle"
+        aria-pressed={audio.enabled}
+        onClick={() => gameAudio.setEnabled(!audio.enabled)}
+      >
+        {audio.enabled ? "Disable audio" : "Enable audio"}
+      </button>
+      <label className="game-audio-panel__volume">
+        <span>Volume</span>
+        <input
+          type="range"
+          min="0"
+          max="100"
+          step="1"
+          value={Math.round(audio.volume * 100)}
+          onChange={(event) => gameAudio.setVolume(Number(event.target.value) / 100)}
+          aria-label={`Game audio volume, ${Math.round(audio.volume * 100)} percent`}
+        />
+        <b>{Math.round(audio.volume * 100)}%</b>
+      </label>
+      <div className="game-audio-panel__cues" aria-label="Replay audio cues">
+        {(Object.keys(audioCueLabels) as GameAudioCue[]).map((cue) => (
+          <button
+            type="button"
+            key={cue}
+            disabled={!audio.enabled}
+            aria-pressed={audio.playingCue === cue}
+            onClick={() => void gameAudio.play(cue)}
+          >
+            <span aria-hidden="true">▶</span> {audioCueLabels[cue]}
+          </button>
+        ))}
+        {audio.playingCue && (
+          <button type="button" onClick={() => gameAudio.stop()}>
+            Stop
+          </button>
+        )}
+      </div>
+      {audio.error && <p role="alert">{audio.error}</p>}
+    </section>
   );
 }
 
@@ -1214,6 +1292,7 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
   const start = async () => {
     setError("");
     setIsStarting(true);
+    void gameAudio.play("opening");
     try {
       await onStart();
     } catch (cause) {
@@ -1277,6 +1356,7 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
           </strong>
           <span>Host can moderate both private huddles</span>
         </div>
+        <GameAudioControls />
         <div className="lobby-team-tools">
           <span>Players can pick a side, or let the host deal the teams.</span>
           <button
@@ -2324,6 +2404,9 @@ function SpinSolveHostGame({
           </button>
         </div>
       </header>
+      <div className="spin-audio-controls">
+        <GameAudioControls />
+      </div>
       <div className="spin-game-stage">
         <SpinScoreboard game={game} config={room.config} />
         <section className="spin-puzzle-stage">
@@ -2615,12 +2698,19 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
   usePresentationPublisher(presentation);
 
   const revealAnswer = (index: number) => {
+    if (revealed.includes(index)) {
+      void gameAudio.play("repeat");
+      return;
+    }
     setRevealed((current) =>
       current.includes(index) ? current : [...current, index],
     );
   };
 
-  const addStrike = () => setStrikes((current) => Math.min(3, current + 1));
+  const addStrike = () => {
+    void gameAudio.play("wrong");
+    setStrikes((current) => Math.min(3, current + 1));
+  };
 
   const awardRound = (teamIndex: TeamIndex) => {
     void roomClient.endFeudQuestion();
@@ -2758,6 +2848,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
       </section>
 
       <section className="host-controls">
+        <GameAudioControls />
         <HostBuzzerPanel room={room} />
         <HostPlayPassPanel room={room} />
         <div className="strike-panel">

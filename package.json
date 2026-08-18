@@ -13,6 +13,7 @@
     "build": "vite build && tsc -p tsconfig.server.json",
     "typecheck": "tsc --noEmit",
     "test:game-packs": "tsx server/feudGamePack.test.ts",
+    "test:audio": "tsx server/gameAudio.test.ts",
     "test:spin-solve": "tsx server/spinSolve.test.ts",
     "test:privacy": "tsx server/privacy.integration.ts",
     "test:moderated-chat": "tsx server/moderatedChat.integration.ts",
