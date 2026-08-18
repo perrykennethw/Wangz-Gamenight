@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { Server, type Socket } from 'socket.io'
 import type {
+  AvatarId,
   ChatMessage,
   BuzzerState,
   ClientToServerEvents,
@@ -30,6 +31,8 @@ interface Room {
   config: GameConfig
   hostSocketId: string
   participants: Map<string, Participant>
+  participantSessions: Map<string, string>
+  disconnectTimers: Map<string, ReturnType<typeof setTimeout>>
   connections: Map<string, Connection>
   messages: Record<TeamId, ChatMessage[]>
   chatLockedTeam: TeamId | null
@@ -48,6 +51,7 @@ interface Room {
 const rooms = new Map<string, Room>()
 const socketRooms = new Map<string, string>()
 const codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+const reconnectGraceMs = 30_000
 const staticDirectory = resolve(process.cwd(), 'dist')
 const contentTypes: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -131,6 +135,23 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isTeamId(value: unknown): value is TeamId {
   return value === 'one' || value === 'two'
+}
+
+function normalizeAvatarId(value: unknown): AvatarId | null {
+  if (value === null || value === undefined || value === '') return null
+  if (typeof value !== 'string') throw new Error('Choose a valid avatar.')
+  const avatarId = value.trim()
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,127}$/.test(avatarId) || avatarId.includes('..')) {
+    throw new Error('Choose a valid avatar.')
+  }
+  return avatarId
+}
+
+function normalizeSessionId(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9-]{10,100}$/.test(value)) {
+    throw new Error('Refresh this page before joining the room.')
+  }
+  return value
 }
 
 function isPlayPassChoice(value: unknown): value is PlayPassChoice {
@@ -277,7 +298,34 @@ function nextRepresentative(room: Room, team: TeamId): string | null {
   return players[(currentIndex + 1 + players.length) % players.length].id
 }
 
-function leaveCurrentRoom(socket: Socket<ClientToServerEvents, ServerToClientEvents>, notifySocket = true): void {
+function removeParticipant(room: Room, participantId: string): void {
+  const participant = room.participants.get(participantId)
+  room.participants.delete(participantId)
+  room.playPass.votes.delete(participantId)
+  for (const [sessionId, savedParticipantId] of room.participantSessions) {
+    if (savedParticipantId === participantId) room.participantSessions.delete(sessionId)
+  }
+  const timer = room.disconnectTimers.get(participantId)
+  if (timer) clearTimeout(timer)
+  room.disconnectTimers.delete(participantId)
+  if (room.playPass.activePlayerId === participantId) endFeudQuestion(room)
+  if (participant?.team && room.buzzer.representatives[participant.team] === participant.id) {
+    room.buzzer = {
+      status: 'idle',
+      winner: null,
+      representatives: {
+        ...room.buzzer.representatives,
+        [participant.team]: nextRepresentative(room, participant.team),
+      },
+    }
+  }
+}
+
+function leaveCurrentRoom(
+  socket: Socket<ClientToServerEvents, ServerToClientEvents>,
+  notifySocket = true,
+  preservePlayer = false,
+): void {
   const room = roomFor(socket.id)
   if (!room) return
 
@@ -286,6 +334,7 @@ function leaveCurrentRoom(socket: Socket<ClientToServerEvents, ServerToClientEve
   socketRooms.delete(socket.id)
 
   if (connection?.role === 'host') {
+    for (const timer of room.disconnectTimers.values()) clearTimeout(timer)
     for (const memberSocketId of room.connections.keys()) {
       io.sockets.sockets.get(memberSocketId)?.emit('room:closed', 'The host closed this room.')
       socketRooms.delete(memberSocketId)
@@ -295,19 +344,16 @@ function leaveCurrentRoom(socket: Socket<ClientToServerEvents, ServerToClientEve
   }
 
   if (connection?.participantId) {
-    const participant = room.participants.get(connection.participantId)
-    room.participants.delete(connection.participantId)
-    room.playPass.votes.delete(connection.participantId)
-    if (room.playPass.activePlayerId === connection.participantId) endFeudQuestion(room)
-    if (participant?.team && room.buzzer.representatives[participant.team] === participant.id) {
-      room.buzzer = {
-        status: 'idle',
-        winner: null,
-        representatives: {
-          ...room.buzzer.representatives,
-          [participant.team]: nextRepresentative(room, participant.team),
-        },
-      }
+    if (preservePlayer) {
+      const participantId = connection.participantId
+      const previousTimer = room.disconnectTimers.get(participantId)
+      if (previousTimer) clearTimeout(previousTimer)
+      room.disconnectTimers.set(participantId, setTimeout(() => {
+        removeParticipant(room, participantId)
+        syncRoom(room)
+      }, reconnectGraceMs))
+    } else {
+      removeParticipant(room, connection.participantId)
     }
   }
   if (notifySocket) syncRoom(room)
@@ -331,6 +377,8 @@ io.on('connection', (socket) => {
       config: normalizedConfig,
       hostSocketId: socket.id,
       participants: new Map(),
+      participantSessions: new Map(),
+      disconnectTimers: new Map(),
       connections: new Map([[socket.id, { role: 'host' }]]),
       messages: { one: [], two: [] },
       chatLockedTeam: null,
@@ -345,24 +393,87 @@ io.on('connection', (socket) => {
     socket.emit('room:snapshot', snapshot)
   })
 
-  socket.on('room:join', ({ code, name }, reply) => {
+  socket.on('room:join', ({ code, name, avatarId, sessionId }, reply) => {
     const normalizedCode = code.trim().toUpperCase()
     const cleanName = name.trim().slice(0, 24)
     const room = rooms.get(normalizedCode)
+    let cleanAvatarId: AvatarId | null
+    let cleanSessionId: string
+
+    try {
+      cleanAvatarId = normalizeAvatarId(avatarId)
+      cleanSessionId = normalizeSessionId(sessionId)
+    } catch (cause) {
+      return reply({ ok: false, error: cause instanceof Error ? cause.message : 'That player identity is not valid.' })
+    }
 
     if (!room) return reply({ ok: false, error: 'That room code is not active.' })
+    if (!cleanName) return reply({ ok: false, error: 'Enter a name before joining.' })
+
+    const savedParticipantId = room.participantSessions.get(cleanSessionId)
+    const savedParticipant = savedParticipantId ? room.participants.get(savedParticipantId) : undefined
+    if (savedParticipant) {
+      if (savedParticipant.name.toLowerCase() !== cleanName.toLowerCase()) {
+        return reply({ ok: false, error: 'This device is already linked to a different player in that room.' })
+      }
+      const alreadyConnected = [...room.connections.values()].some(
+        (connection) => connection.participantId === savedParticipant.id,
+      )
+      if (alreadyConnected) return reply({ ok: false, error: 'That player is already connected.' })
+
+      leaveCurrentRoom(socket)
+      const timer = room.disconnectTimers.get(savedParticipant.id)
+      if (timer) clearTimeout(timer)
+      room.disconnectTimers.delete(savedParticipant.id)
+      savedParticipant.avatarId = cleanAvatarId
+      room.connections.set(socket.id, { role: 'player', participantId: savedParticipant.id })
+      socketRooms.set(socket.id, room.code)
+      const snapshot = snapshotFor(room, socket.id)
+      reply({ ok: true, data: snapshot })
+      syncRoom(room)
+      return
+    }
+
     if (room.phase !== 'lobby') return reply({ ok: false, error: 'That game has already started.' })
     if (room.participants.size >= 20) return reply({ ok: false, error: 'That room is full.' })
-    if (!cleanName) return reply({ ok: false, error: 'Enter a name before joining.' })
     if ([...room.participants.values()].some((player) => player.name.toLowerCase() === cleanName.toLowerCase())) {
       return reply({ ok: false, error: 'Someone in this room is already using that name.' })
     }
 
     leaveCurrentRoom(socket)
-    const participant: Participant = { id: randomUUID(), name: cleanName, team: null }
+    const participant: Participant = { id: randomUUID(), name: cleanName, avatarId: cleanAvatarId, team: null }
     room.participants.set(participant.id, participant)
+    room.participantSessions.set(cleanSessionId, participant.id)
     room.connections.set(socket.id, { role: 'player', participantId: participant.id })
     socketRooms.set(socket.id, room.code)
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('participant:update-identity', ({ name, avatarId }, reply) => {
+    const room = roomFor(socket.id)
+    const connection = room?.connections.get(socket.id)
+    const participant = connection?.participantId ? room?.participants.get(connection.participantId) : undefined
+    const cleanName = typeof name === 'string' ? name.trim().slice(0, 24) : ''
+    if (!room || !participant || connection?.role !== 'player') {
+      return reply({ ok: false, error: 'Join a room before updating your identity.' })
+    }
+    if (room.phase !== 'lobby') return reply({ ok: false, error: 'Player identities are locked after the game starts.' })
+    if (!cleanName) return reply({ ok: false, error: 'Enter a name for your player card.' })
+    if ([...room.participants.values()].some(
+      (player) => player.id !== participant.id && player.name.toLowerCase() === cleanName.toLowerCase(),
+    )) {
+      return reply({ ok: false, error: 'Someone in this room is already using that name.' })
+    }
+
+    try {
+      participant.name = cleanName
+      participant.avatarId = normalizeAvatarId(avatarId)
+    } catch (cause) {
+      return reply({ ok: false, error: cause instanceof Error ? cause.message : 'Choose a valid avatar.' })
+    }
+
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
     syncRoom(room)
@@ -686,6 +797,7 @@ io.on('connection', (socket) => {
       winner: {
         participantId: participant.id,
         playerName: participant.name,
+        avatarId: participant.avatarId,
         team: participant.team,
       },
     }
@@ -694,7 +806,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('room:leave', () => leaveCurrentRoom(socket))
-  socket.on('disconnect', () => leaveCurrentRoom(socket, false))
+  socket.on('disconnect', () => leaveCurrentRoom(socket, false, true))
 })
 
 const port = Number(process.env.PORT ?? 3001)

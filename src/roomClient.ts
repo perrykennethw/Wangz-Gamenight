@@ -4,6 +4,7 @@ import type {
   BuzzerState,
   ClientToServerEvents,
   GameConfig,
+  JoinRoomDetails,
   PlayPassChoice,
   RoomResult,
   RoomSnapshot,
@@ -17,9 +18,20 @@ type ClosedListener = (message: string) => void;
 
 class RoomClient {
   private readonly socket: Socket<ServerToClientEvents, ClientToServerEvents>;
+  private joinedRoom: JoinRoomDetails | null = null;
+  private canResume = false;
+  private onResumeFailed: ClosedListener | null = null;
 
   constructor() {
     this.socket = io({ autoConnect: false });
+    this.socket.on("connect", () => {
+      if (!this.canResume || !this.joinedRoom) return;
+      this.socket.emit("room:join", this.joinedRoom, (result) => {
+        if (result.ok) return;
+        this.canResume = false;
+        this.onResumeFailed?.(`Could not reconnect: ${result.error}`);
+      });
+    });
   }
 
   subscribe(
@@ -27,16 +39,20 @@ class RoomClient {
     onClosed: ClosedListener,
   ): () => void {
     this.connect();
+    this.onResumeFailed = onClosed;
     this.socket.on("room:snapshot", onSnapshot);
     this.socket.on("room:closed", onClosed);
 
     return () => {
       this.socket.off("room:snapshot", onSnapshot);
       this.socket.off("room:closed", onClosed);
+      if (this.onResumeFailed === onClosed) this.onResumeFailed = null;
     };
   }
 
   createRoom(config: GameConfig): Promise<RoomSnapshot> {
+    this.canResume = false;
+    this.joinedRoom = null;
     this.connect();
     return new Promise((resolve, reject) => {
       this.socket.emit("room:create", config, (result) =>
@@ -45,12 +61,33 @@ class RoomClient {
     });
   }
 
-  joinRoom(code: string, name: string): Promise<RoomSnapshot> {
+  joinRoom(code: string, name: string, avatarId: string | null): Promise<RoomSnapshot> {
+    const details: JoinRoomDetails = {
+      code,
+      name,
+      avatarId,
+      sessionId: this.sessionId(),
+    };
+    this.joinedRoom = details;
+    this.canResume = false;
     this.connect();
     return new Promise((resolve, reject) => {
-      this.socket.emit("room:join", { code, name }, (result) =>
-        this.finish(result, resolve, reject),
-      );
+      this.socket.emit("room:join", details, (result) => {
+        if (result.ok) this.canResume = true;
+        this.finish(result, resolve, reject);
+      });
+    });
+  }
+
+  updateIdentity(name: string, avatarId: string | null): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit("participant:update-identity", { name, avatarId }, (result) => {
+        if (result.ok && this.joinedRoom) {
+          this.joinedRoom.name = name;
+          this.joinedRoom.avatarId = avatarId;
+        }
+        this.finish(result, resolve, reject);
+      });
     });
   }
 
@@ -188,7 +225,18 @@ class RoomClient {
   }
 
   leaveRoom(): void {
+    this.canResume = false;
+    this.joinedRoom = null;
     this.socket.emit("room:leave");
+  }
+
+  private sessionId(): string {
+    const key = "wangz-player-session";
+    const existing = window.sessionStorage.getItem(key);
+    if (existing) return existing;
+    const created = crypto.randomUUID();
+    window.sessionStorage.setItem(key, created);
+    return created;
   }
 
   private connect(): void {
