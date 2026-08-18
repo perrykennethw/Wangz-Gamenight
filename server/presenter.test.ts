@@ -16,8 +16,8 @@ const room: RoomSnapshot = {
   phase: 'playing',
   config,
   participants: [
-    { id: 'private-player-id', name: 'Avery', team: 'one' },
-    { id: 'other-private-id', name: 'Blake', team: 'two' },
+    { id: 'private-player-id', name: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' },
+    { id: 'other-private-id', name: 'Blake', avatarId: null, team: 'two' },
   ],
   messages: [{ id: 'secret-message-id', senderId: 'private-player-id', senderName: 'Avery', team: 'one', text: 'SECRET HUDDLE', sentAt: 1 }],
   teamChats: {
@@ -36,7 +36,7 @@ const room: RoomSnapshot = {
   },
   buzzer: {
     status: 'locked',
-    winner: { participantId: 'private-player-id', playerName: 'Avery', team: 'one' },
+    winner: { participantId: 'private-player-id', playerName: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' },
     representatives: { one: 'private-player-id', two: 'other-private-id' },
   },
   viewer: { role: 'host' },
@@ -67,9 +67,9 @@ for (const state of [lobby, feud]) {
   assert.equal(serialized.includes('messages'), false)
 }
 
-assert.deepEqual(lobby.participants, [{ name: 'Avery', team: 'one' }, { name: 'Blake', team: 'two' }])
-assert.equal(feud.decision.activePlayerName, 'Avery')
-assert.deepEqual(feud.buzzer.winner, { playerName: 'Avery', team: 'one' })
+assert.deepEqual(lobby.participants, [{ name: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' }, { name: 'Blake', avatarId: null, team: 'two' }])
+assert.deepEqual(feud.decision.activePlayer, { name: 'Avery', avatarId: 'contestants/rocket.webp' })
+assert.deepEqual(feud.buzzer.winner, { playerName: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' })
 assert.deepEqual(feud.revealed, [0])
 assert.equal(feud.question.answers[0].label, config.pack.questions[0].answers[0].label)
 assert.equal(feud.question.answers[1].label, '')

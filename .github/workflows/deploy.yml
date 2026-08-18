@@ -22,6 +22,8 @@ env:
   SERVICE: wangz-gamenight
   DEPLOYER_SERVICE_ACCOUNT: github-deployer@wangz-505715.iam.gserviceaccount.com
   WORKLOAD_IDENTITY_PROVIDER: projects/404444556589/locations/global/workloadIdentityPools/github-actions/providers/wangz-gamenight
+  VITE_AVATAR_BASE_URL: ${{ vars.VITE_AVATAR_BASE_URL || secrets.VITE_AVATAR_BASE_URL }}
+  VITE_AVATAR_KEYS: ${{ vars.VITE_AVATAR_KEYS || secrets.VITE_AVATAR_KEYS }}
 
 jobs:
   deploy:
@@ -42,6 +44,19 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate avatar build configuration
+        shell: bash
+        run: |
+          if [[ -z "$VITE_AVATAR_BASE_URL" ]]; then
+            echo "::error::Set VITE_AVATAR_BASE_URL as a GitHub Actions repository variable or secret."
+            exit 1
+          fi
+
+          if [[ -z "$VITE_AVATAR_KEYS" ]]; then
+            echo "::error::Set VITE_AVATAR_KEYS as a GitHub Actions repository variable or secret."
+            exit 1
+          fi
+
       - name: Type-check
         run: npm run typecheck
 
@@ -50,6 +65,9 @@ jobs:
 
       - name: Test Spin & Solve game logic
         run: npm run test:spin-solve
+
+      - name: Test presenter privacy
+        run: npm run test:presenter
 
       - name: Build production application
         run: npm run build
@@ -76,6 +94,7 @@ jobs:
           fi
 
           npm run test:privacy
+          npm run test:moderated-chat
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
@@ -97,7 +116,10 @@ jobs:
         shell: bash
         run: |
           image="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${SERVICE}:${GITHUB_SHA}"
-          docker build --tag "$image" .
+          docker build \
+            --build-arg VITE_AVATAR_BASE_URL="$VITE_AVATAR_BASE_URL" \
+            --build-arg VITE_AVATAR_KEYS="$VITE_AVATAR_KEYS" \
+            --tag "$image" .
           docker push "$image"
           echo "uri=$image" >> "$GITHUB_OUTPUT"
 
