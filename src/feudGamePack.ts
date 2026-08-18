@@ -25,6 +25,32 @@ const makeId = (prefix: string, index: number, value: string) => {
   return `${prefix}-${index + 1}-${slug || 'item'}`
 }
 
+function adaptImportedFeudGamePack(value: unknown): unknown {
+  if (!isRecord(value) || Array.isArray(value.questions) || !Array.isArray(value.rounds)) return value
+
+  return {
+    version: 1,
+    kind: 'feud',
+    title: cleanText(value.title) || 'Imported Family Feud',
+    questions: value.rounds.map((rawRound) => {
+      const round = isRecord(rawRound) ? rawRound : {}
+      const rawAnswers = Array.isArray(round.answers) ? round.answers : []
+      return {
+        id: round.id,
+        prompt: round.question,
+        answers: rawAnswers.map((rawAnswer) => {
+          const answer = isRecord(rawAnswer) ? rawAnswer : {}
+          return {
+            id: answer.id,
+            label: typeof answer.ans === 'string' ? answer.ans : answer.label,
+            points: typeof answer.pnt === 'number' ? answer.pnt : answer.points,
+          }
+        }),
+      }
+    }),
+  }
+}
+
 export function normalizeFeudGamePack(value: unknown): FeudGamePack {
   const issues: string[] = []
   if (!isRecord(value)) throw new GamePackError(['The file must contain a game-pack object.'])
@@ -83,7 +109,7 @@ export function parseFeudGamePack(text: string): FeudGamePack {
   }
 
   try {
-    return normalizeFeudGamePack(JSON.parse(text))
+    return normalizeFeudGamePack(adaptImportedFeudGamePack(JSON.parse(text)))
   } catch (cause) {
     if (cause instanceof GamePackError) throw cause
     throw new GamePackError(['That file is not valid JSON.'])
