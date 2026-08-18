@@ -18,7 +18,7 @@ interface PresentationBase {
 export interface LobbyPresentation extends PresentationBase {
   mode: "lobby";
   game: "Family Feud" | "Spin & Solve";
-  participants: Array<{ name: string; avatarId: string | null; team: TeamId | null }>;
+  participants: Array<{ name: string; team: TeamId | null }>;
 }
 
 export interface FeudPresentation extends PresentationBase {
@@ -34,11 +34,11 @@ export interface FeudPresentation extends PresentationBase {
   roundPot: number;
   buzzer: {
     status: BuzzerStatus;
-    winner: { playerName: string; avatarId: string | null; team: TeamId } | null;
+    winner: { playerName: string; team: TeamId } | null;
   };
   decision: {
     status: "closed" | "open" | "decided";
-    activePlayer: { name: string; avatarId: string | null } | null;
+    activePlayerName: string | null;
     choice: "play" | "pass" | null;
     controllingTeam: TeamId | null;
   };
@@ -105,7 +105,7 @@ export function createLobbyPresentation(room: RoomSnapshot): LobbyPresentation {
     game: room.config.kind === "feud" ? "Family Feud" : "Spin & Solve",
     teamOne: room.config.teamOne,
     teamTwo: room.config.teamTwo,
-    participants: room.participants.map(({ name, avatarId, team }) => ({ name, avatarId, team })),
+    participants: room.participants.map(({ name, team }) => ({ name, team })),
   };
 }
 
@@ -140,14 +140,13 @@ export function createFeudPresentation(
       winner: input.room.buzzer.winner
         ? {
             playerName: input.room.buzzer.winner.playerName,
-            avatarId: input.room.buzzer.winner.avatarId,
             team: input.room.buzzer.winner.team,
           }
         : null,
     },
     decision: {
       status: input.room.playPass.status,
-      activePlayer: activePlayer ? { name: activePlayer.name, avatarId: activePlayer.avatarId } : null,
+      activePlayerName: activePlayer?.name ?? null,
       choice: input.room.playPass.decision,
       controllingTeam: input.room.playPass.controllingTeam,
     },
