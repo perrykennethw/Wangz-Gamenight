@@ -6,6 +6,7 @@ import { Server, type Socket } from 'socket.io'
 import type {
   AvatarId,
   ChatMessage,
+  ChatTypingUpdate,
   BuzzerState,
   ClientToServerEvents,
   GameConfig,
@@ -35,6 +36,7 @@ interface Room {
   disconnectTimers: Map<string, ReturnType<typeof setTimeout>>
   connections: Map<string, Connection>
   messages: Record<TeamId, ChatMessage[]>
+  typing: Map<string, ChatTypingUpdate>
   chatLockedTeam: TeamId | null
   playPass: {
     status: 'closed' | 'open' | 'decided'
@@ -287,6 +289,64 @@ function syncRoom(room: Room): void {
   }
 }
 
+function emitTypingUpdate(room: Room, sourceSocketId: string, update: ChatTypingUpdate): void {
+  for (const [socketId, connection] of room.connections) {
+    if (socketId === sourceSocketId) continue
+    const participant = connection.participantId
+      ? room.participants.get(connection.participantId)
+      : undefined
+    if (connection.role === 'host' || participant?.team === update.team) {
+      io.sockets.sockets.get(socketId)?.emit('chat:typing', update)
+    }
+  }
+}
+
+function setRoomTyping(room: Room, socketId: string, requestedTeam: unknown, isTyping: unknown): void {
+  if (typeof isTyping !== 'boolean') return
+
+  const existing = room.typing.get(socketId)
+  if (existing && !isTyping) {
+    room.typing.delete(socketId)
+    emitTypingUpdate(room, socketId, { ...existing, isTyping: false })
+    return
+  }
+  if (!isTyping) return
+
+  const connection = room.connections.get(socketId)
+  const participant = connection?.participantId
+    ? room.participants.get(connection.participantId)
+    : undefined
+  const team = connection?.role === 'host' ? requestedTeam : participant?.team
+  if (!connection || !isTeamId(team)) return
+  if (connection.role === 'player' && room.chatLockedTeam === team) return
+
+  if (existing && existing.team !== team) {
+    emitTypingUpdate(room, socketId, { ...existing, isTyping: false })
+  }
+
+  const update: ChatTypingUpdate = {
+    senderId: participant?.id ?? 'host',
+    senderName: participant?.name ?? 'Host',
+    senderAvatarId: participant?.avatarId ?? null,
+    team,
+    isTyping: true,
+  }
+  room.typing.set(socketId, update)
+  emitTypingUpdate(room, socketId, update)
+}
+
+function clearParticipantTyping(room: Room, participantId: string): void {
+  for (const [socketId, connection] of room.connections) {
+    if (connection.participantId === participantId) setRoomTyping(room, socketId, undefined, false)
+  }
+}
+
+function clearTeamTyping(room: Room, team: TeamId): void {
+  for (const [socketId, update] of room.typing) {
+    if (update.team === team) setRoomTyping(room, socketId, undefined, false)
+  }
+}
+
 function playersForTeam(room: Room, team: TeamId): Participant[] {
   return [...room.participants.values()].filter((participant) => participant.team === team)
 }
@@ -330,6 +390,7 @@ function leaveCurrentRoom(
   if (!room) return
 
   const connection = room.connections.get(socket.id)
+  setRoomTyping(room, socket.id, undefined, false)
   room.connections.delete(socket.id)
   socketRooms.delete(socket.id)
 
@@ -381,6 +442,7 @@ io.on('connection', (socket) => {
       disconnectTimers: new Map(),
       connections: new Map([[socket.id, { role: 'host' }]]),
       messages: { one: [], two: [] },
+      typing: new Map(),
       chatLockedTeam: null,
       playPass: closedPlayPass(),
       game: null,
@@ -507,6 +569,7 @@ io.on('connection', (socket) => {
     const participant = room.participants.get(participantId)
     if (!participant) return reply({ ok: false, error: 'Choose a connected player.' })
 
+    clearParticipantTyping(room, participant.id)
     participant.team = team
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
@@ -519,6 +582,7 @@ io.on('connection', (socket) => {
     if (room.phase !== 'lobby') return reply({ ok: false, error: 'Teams are locked after the game starts.' })
 
     const participants = [...room.participants.values()]
+    for (const participant of participants) clearParticipantTyping(room, participant.id)
     for (let index = participants.length - 1; index > 0; index--) {
       const swapIndex = Math.floor(Math.random() * (index + 1))
       ;[participants[index], participants[swapIndex]] = [participants[swapIndex], participants[index]]
@@ -544,10 +608,12 @@ io.on('connection', (socket) => {
       return reply({ ok: false, error: 'Your team is answering now. The huddle reopens when the host ends the question.' })
     }
 
+    setRoomTyping(room, socket.id, messageTeam, false)
     const message: ChatMessage = {
       id: randomUUID(),
       senderId: participant?.id ?? 'host',
       senderName: participant?.name ?? 'Host',
+      senderAvatarId: participant?.avatarId ?? null,
       team: messageTeam,
       text: cleanText,
       sentAt: Date.now(),
@@ -556,6 +622,12 @@ io.on('connection', (socket) => {
     room.messages[messageTeam] = room.messages[messageTeam].slice(-100)
     reply({ ok: true, data: message })
     syncRoom(room)
+  })
+
+  socket.on('chat:typing', (details) => {
+    if (!isRecord(details)) return
+    const room = roomFor(socket.id)
+    if (room) setRoomTyping(room, socket.id, details.team, details.isTyping)
   })
 
   socket.on('feud:open-play-pass', (reply) => {
@@ -618,6 +690,7 @@ io.on('connection', (socket) => {
     room.playPass.status = 'decided'
     room.playPass.decision = choice
     room.playPass.controllingTeam = controllingTeam
+    clearTeamTyping(room, controllingTeam)
     room.chatLockedTeam = controllingTeam
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })

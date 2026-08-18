@@ -467,7 +467,7 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 .my-team-card > * { position: relative; z-index: 1; }
 .my-team-card > span { font-size: 9px; font-weight: 900; letter-spacing: .15em; text-transform: uppercase; }
 .my-team-card h1 { margin: 18px 0 28px; font-family: var(--display); font-size: clamp(45px, 6vw, 70px); line-height: .86; letter-spacing: .01em; text-transform: uppercase; }
-.team-chat { display: grid; grid-template-rows: auto 1fr auto auto; min-height: 610px; color: var(--ink); background: var(--paper); border-top: 7px solid var(--gold); }
+.team-chat { display: grid; grid-template-rows: auto 1fr auto auto auto auto; min-height: 610px; color: var(--ink); background: var(--paper); border-top: 7px solid var(--gold); }
 .team-chat--two { border-color: var(--coral); }
 .team-chat > header { display: flex; align-items: flex-start; justify-content: space-between; padding: 23px 25px 18px; border-bottom: 1px solid #d8d1c4; }
 .team-chat > header span { font-size: 8px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
@@ -477,11 +477,23 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 .chat-empty { display: grid; place-items: center; align-content: center; flex: 1; color: #7d8188; text-align: center; }
 .chat-empty strong { color: var(--ink); font-family: var(--display); font-size: 34px; letter-spacing: .04em; text-transform: uppercase; }
 .chat-empty span { font-size: 11px; }
-.chat-feed article { align-self: flex-start; max-width: 80%; }
-.chat-feed article.is-mine { align-self: flex-end; text-align: right; }
-.chat-feed article > span { display: block; margin: 0 5px 4px; color: #747a83; font-size: 8px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
-.chat-feed article p { margin: 0; padding: 10px 12px; background: #dedbd4; font-size: 13px; line-height: 1.4; text-align: left; }
+.chat-feed article { display: flex; align-items: flex-end; align-self: flex-start; gap: 8px; max-width: 88%; }
+.chat-feed article.is-mine { align-self: flex-end; flex-direction: row-reverse; text-align: right; }
+.chat-feed article > .identity-portrait { width: 30px; height: 30px; border-width: 2px; box-shadow: 0 2px 0 rgba(7,21,45,.16); }
+.chat-feed article > .identity-portrait b { font-size: 11px; }
+.chat-message__body { min-width: 0; }
+.chat-message__body > span { display: block; margin: 0 5px 4px; color: #747a83; font-size: 8px; font-weight: 900; letter-spacing: .1em; text-transform: uppercase; }
+.chat-feed article p { margin: 0; padding: 10px 12px; overflow-wrap: anywhere; background: #dedbd4; font-size: 13px; line-height: 1.4; text-align: left; }
 .chat-feed article.is-mine p { color: var(--paper); background: var(--blue); }
+.chat-typing { display: flex; align-items: center; gap: 9px; min-height: 42px; padding: 7px 16px; color: #5d6570; background: #ebe7df; border-top: 1px solid #d8d1c4; font-size: 10px; }
+.chat-typing__avatars { display: flex; min-width: 30px; padding-left: 8px; }
+.chat-typing__avatars .identity-portrait { width: 28px; height: 28px; margin-left: -8px; background: var(--blue); border: 2px solid var(--paper); }
+.chat-typing__avatars .identity-portrait b { font-size: 10px; }
+.chat-typing__copy { display: flex; align-items: center; gap: 5px; min-width: 0; font-weight: 800; }
+.chat-typing__dots { display: inline-flex; align-items: end; gap: 2px; height: 10px; }
+.chat-typing__dots i { display: block; width: 4px; height: 4px; background: currentColor; border-radius: 50%; animation: typing-bounce .9s ease-in-out infinite; }
+.chat-typing__dots i:nth-child(2) { animation-delay: .12s; }
+.chat-typing__dots i:nth-child(3) { animation-delay: .24s; }
 .team-chat form { display: grid; grid-template-columns: 1fr 46px; gap: 7px; padding: 13px; border-top: 1px solid #d8d1c4; }
 .team-chat form input { min-width: 0; padding: 12px; background: var(--white); border: 1px solid #b8b2a8; font-size: 13px; }
 .team-chat form button { color: var(--ink); background: var(--gold); border: 0; font-size: 21px; font-weight: 900; }
@@ -777,6 +789,7 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 @keyframes rise { from { transform: translateY(30px) scale(.96); opacity: 0; } }
 @keyframes buzzer-pulse { 0%, 100% { filter: brightness(1); } 50% { filter: brightness(1.16); } }
 @keyframes buzz-winner { from { transform: scale(.78) rotate(-2deg); opacity: 0; } }
+@keyframes typing-bounce { 0%, 60%, 100% { transform: translateY(0); } 30% { transform: translateY(-4px); } }
 
 @media (max-width: 860px) {
   .hero { grid-template-columns: 1fr; margin-top: 40px; }

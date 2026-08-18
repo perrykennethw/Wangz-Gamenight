@@ -1,6 +1,7 @@
 import { io, type Socket } from "socket.io-client";
 import type {
   ChatMessage,
+  ChatTypingUpdate,
   BuzzerState,
   ClientToServerEvents,
   GameConfig,
@@ -15,6 +16,7 @@ import type {
 
 type SnapshotListener = (snapshot: RoomSnapshot) => void;
 type ClosedListener = (message: string) => void;
+type TypingListener = (update: ChatTypingUpdate) => void;
 
 class RoomClient {
   private readonly socket: Socket<ServerToClientEvents, ClientToServerEvents>;
@@ -137,6 +139,16 @@ class RoomClient {
         this.finish(result, resolve, reject),
       );
     });
+  }
+
+  setTyping(isTyping: boolean, team?: TeamId): void {
+    this.socket.emit("chat:typing", { isTyping, team });
+  }
+
+  subscribeTyping(listener: TypingListener): () => void {
+    this.connect();
+    this.socket.on("chat:typing", listener);
+    return () => this.socket.off("chat:typing", listener);
   }
 
   openPlayPass(): Promise<RoomSnapshot> {
