@@ -19,9 +19,9 @@ const room: RoomSnapshot = {
     { id: 'private-player-id', name: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' },
     { id: 'other-private-id', name: 'Blake', avatarId: null, team: 'two' },
   ],
-  messages: [{ id: 'secret-message-id', senderId: 'private-player-id', senderName: 'Avery', team: 'one', text: 'SECRET HUDDLE', sentAt: 1 }],
+  messages: [{ id: 'secret-message-id', senderId: 'private-player-id', senderName: 'Avery', senderAvatarId: 'contestants/rocket.webp', team: 'one', text: 'SECRET HUDDLE', sentAt: 1 }],
   teamChats: {
-    one: [{ id: 'secret-message-id', senderId: 'private-player-id', senderName: 'Avery', team: 'one', text: 'SECRET HUDDLE', sentAt: 1 }],
+    one: [{ id: 'secret-message-id', senderId: 'private-player-id', senderName: 'Avery', senderAvatarId: 'contestants/rocket.webp', team: 'one', text: 'SECRET HUDDLE', sentAt: 1 }],
     two: [],
   },
   chat: { lockedTeam: null, reason: null },

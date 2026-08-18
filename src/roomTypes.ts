@@ -70,9 +70,18 @@ export interface ChatMessage {
   id: string;
   senderId: string;
   senderName: string;
+  senderAvatarId: AvatarId | null;
   team: TeamId;
   text: string;
   sentAt: number;
+}
+
+export interface ChatTypingUpdate {
+  senderId: string;
+  senderName: string;
+  senderAvatarId: AvatarId | null;
+  team: TeamId;
+  isTyping: boolean;
 }
 
 export interface BuzzerWinner {
@@ -208,6 +217,7 @@ export interface ClientToServerEvents {
     details: { text: string; team?: TeamId },
     reply: (result: RoomResult<ChatMessage>) => void,
   ) => void;
+  "chat:typing": (details: { isTyping: boolean; team?: TeamId }) => void;
   "feud:open-play-pass": (
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
@@ -238,4 +248,5 @@ export interface ClientToServerEvents {
 export interface ServerToClientEvents {
   "room:snapshot": (snapshot: RoomSnapshot) => void;
   "room:closed": (message: string) => void;
+  "chat:typing": (update: ChatTypingUpdate) => void;
 }

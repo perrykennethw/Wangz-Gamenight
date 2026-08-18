@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
 import {
   avatarFor,
@@ -26,6 +26,7 @@ import { roomClient } from "./roomClient";
 import type {
   AvatarId,
   ChatMessage,
+  ChatTypingUpdate,
   FeudGameConfig,
   FeudGamePack,
   GameConfig,
@@ -768,6 +769,14 @@ interface TeamChatProps {
   moderator?: boolean;
 }
 
+function typingSummary(members: ChatTypingUpdate[]): string {
+  if (members.length === 1) return `${members[0].senderName} is typing`;
+  if (members.length === 2) {
+    return `${members[0].senderName} and ${members[1].senderName} are typing`;
+  }
+  return `${members[0].senderName} and ${members.length - 1} others are typing`;
+}
+
 function TeamChat({
   team,
   teamLabel,
@@ -781,11 +790,82 @@ function TeamChat({
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [typingMembers, setTypingMembers] = useState<ChatTypingUpdate[]>([]);
+  const typingExpiryTimers = useRef(new Map<string, number>());
+  const typingStopTimer = useRef<number | null>(null);
+  const typingAnnounced = useRef(false);
+  const lastTypingSignalAt = useRef(0);
   const inputId = `team-message-${team}-${participantId}`;
+
+  const stopTyping = () => {
+    if (typingStopTimer.current !== null) {
+      window.clearTimeout(typingStopTimer.current);
+      typingStopTimer.current = null;
+    }
+    if (typingAnnounced.current) {
+      roomClient.setTyping(false, team);
+      typingAnnounced.current = false;
+    }
+  };
+
+  const updateMessage = (value: string) => {
+    setMessage(value);
+    if (!value.trim()) {
+      stopTyping();
+      return;
+    }
+
+    const now = Date.now();
+    if (!typingAnnounced.current || now - lastTypingSignalAt.current >= 900) {
+      roomClient.setTyping(true, team);
+      typingAnnounced.current = true;
+      lastTypingSignalAt.current = now;
+    }
+    if (typingStopTimer.current !== null) window.clearTimeout(typingStopTimer.current);
+    typingStopTimer.current = window.setTimeout(stopTyping, 1_400);
+  };
+
+  useEffect(() => roomClient.subscribeTyping((update) => {
+    if (update.team !== team || update.senderId === participantId) return;
+
+    const currentTimer = typingExpiryTimers.current.get(update.senderId);
+    if (currentTimer !== undefined) window.clearTimeout(currentTimer);
+    typingExpiryTimers.current.delete(update.senderId);
+
+    if (!update.isTyping) {
+      setTypingMembers((current) => current.filter((member) => member.senderId !== update.senderId));
+      return;
+    }
+
+    setTypingMembers((current) => [
+      ...current.filter((member) => member.senderId !== update.senderId),
+      update,
+    ]);
+    const expiryTimer = window.setTimeout(() => {
+      typingExpiryTimers.current.delete(update.senderId);
+      setTypingMembers((current) => current.filter((member) => member.senderId !== update.senderId));
+    }, 2_500);
+    typingExpiryTimers.current.set(update.senderId, expiryTimer);
+  }), [participantId, team]);
+
+  useEffect(() => {
+    setTypingMembers([]);
+    return () => {
+      if (typingStopTimer.current !== null) window.clearTimeout(typingStopTimer.current);
+      if (typingAnnounced.current) roomClient.setTyping(false, team);
+      for (const timer of typingExpiryTimers.current.values()) window.clearTimeout(timer);
+      typingExpiryTimers.current.clear();
+    };
+  }, [participantId, team]);
+
+  useEffect(() => {
+    if (locked && !moderator) stopTyping();
+  }, [locked, moderator]);
 
   const submit = async (event: React.SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!message.trim()) return;
+    stopTyping();
     setIsSending(true);
     setError("");
     try {
@@ -826,12 +906,41 @@ function TeamChat({
               key={item.id}
               className={item.senderId === participantId ? "is-mine" : ""}
             >
-              <span>{item.senderName}</span>
-              <p>{item.text}</p>
+              <IdentityPortrait
+                name={item.senderName}
+                avatarId={item.senderAvatarId}
+                compact
+              />
+              <div className="chat-message__body">
+                <span>{item.senderName}</span>
+                <p>{item.text}</p>
+              </div>
             </article>
           ))
         )}
       </div>
+      {typingMembers.length > 0 && (
+        <div className="chat-typing" role="status" aria-live="polite">
+          <span className="chat-typing__avatars" aria-hidden="true">
+            {typingMembers.slice(0, 3).map((member) => (
+              <IdentityPortrait
+                key={member.senderId}
+                name={member.senderName}
+                avatarId={member.senderAvatarId}
+                compact
+              />
+            ))}
+          </span>
+          <span className="chat-typing__copy">
+            {typingSummary(typingMembers)}
+            <span className="chat-typing__dots" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+            </span>
+          </span>
+        </div>
+      )}
       {locked && !moderator && (
         <p className="chat-lock-notice" role="status">
           <strong>Huddle paused.</strong> {lockReason}
@@ -844,7 +953,8 @@ function TeamChat({
         <input
           id={inputId}
           value={message}
-          onChange={(event) => setMessage(event.target.value)}
+          onChange={(event) => updateMessage(event.target.value)}
+          onBlur={stopTyping}
           placeholder={
             locked && !moderator
               ? "Huddle reopens after this question"

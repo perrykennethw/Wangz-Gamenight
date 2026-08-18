@@ -3,6 +3,7 @@ import { io, type Socket } from 'socket.io-client'
 import { starterFeudPack } from '../src/gameData.js'
 import type {
   ChatMessage,
+  ChatTypingUpdate,
   ClientToServerEvents,
   GameConfig,
   PlayPassChoice,
@@ -43,6 +44,7 @@ const chooseTeam = (socket: TestSocket, team: TeamId) => result<RoomSnapshot>((r
 const assignTeam = (socket: TestSocket, participantId: string, team: TeamId) => result<RoomSnapshot>((reply) => socket.emit('room:assign-team', { participantId, team }, reply))
 const randomizeTeams = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('room:randomize-teams', reply))
 const sendMessage = (socket: TestSocket, text: string, team?: TeamId) => result<ChatMessage>((reply) => socket.emit('chat:send', { text, team }, reply))
+const setTyping = (socket: TestSocket, isTyping: boolean, team?: TeamId) => socket.emit('chat:typing', { isTyping, team })
 const startGame = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('game:start', reply))
 const armBuzzer = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('buzzer:arm', reply))
 const pressBuzzer = (socket: TestSocket) => result((reply) => socket.emit('buzzer:press', reply))
@@ -55,7 +57,12 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 30))
 const [host, avery, casey, blake] = await Promise.all([connect(), connect(), connect(), connect()])
 const sockets = [host, avery, casey, blake]
 const views = new Map<TestSocket, RoomSnapshot>()
+const typingUpdates = new Map<TestSocket, ChatTypingUpdate[]>()
 for (const socket of sockets) socket.on('room:snapshot', (snapshot) => views.set(socket, snapshot))
+for (const socket of sockets) {
+  typingUpdates.set(socket, [])
+  socket.on('chat:typing', (update) => typingUpdates.get(socket)?.push(update))
+}
 
 try {
   const created = await createRoom(host)
@@ -74,6 +81,37 @@ try {
   assert.equal(views.get(host)?.participants.find((participant) => participant.name === 'Avery Wang')?.avatarId, 'contestants/disco-ball.webp')
   await assert.rejects(() => updateIdentity(avery, 'Avery Wang', 'https://example.com/not-allowed.webp'), /valid avatar/i)
 
+  setTyping(avery, true)
+  await settle()
+  assert.deepEqual(typingUpdates.get(host)?.at(-1), {
+    senderId: averyJoined.viewer.role === 'player' ? averyJoined.viewer.participantId : '',
+    senderName: 'Avery Wang',
+    senderAvatarId: 'contestants/disco-ball.webp',
+    team: 'one',
+    isTyping: true,
+  })
+  assert.equal(typingUpdates.get(casey)?.at(-1)?.senderName, 'Avery Wang')
+  assert.equal(typingUpdates.get(avery)?.length, 0)
+  assert.equal(typingUpdates.get(blake)?.length, 0)
+  setTyping(avery, false)
+  await settle()
+  assert.equal(typingUpdates.get(host)?.at(-1)?.isTyping, false)
+  assert.equal(typingUpdates.get(casey)?.at(-1)?.isTyping, false)
+
+  setTyping(host, true, 'two')
+  await settle()
+  assert.deepEqual(typingUpdates.get(blake)?.at(-1), {
+    senderId: 'host',
+    senderName: 'Host',
+    senderAvatarId: null,
+    team: 'two',
+    isTyping: true,
+  })
+  assert.equal(typingUpdates.get(avery)?.length, 0)
+  assert.equal(typingUpdates.get(casey)?.length, 2)
+  setTyping(host, false, 'two')
+  await settle()
+
   await sendMessage(avery, 'Comets only')
   await sendMessage(blake, 'Rockets only')
   await sendMessage(host, 'Host checking in', 'one')
@@ -83,6 +121,8 @@ try {
   assert.deepEqual(views.get(avery)?.messages.map((message) => message.text), ['Comets only', 'Host checking in'])
   assert.deepEqual(views.get(blake)?.messages.map((message) => message.text), ['Rockets only'])
   assert.equal(views.get(blake)?.teamChats.one, undefined)
+  assert.equal(views.get(avery)?.messages[0]?.senderAvatarId, 'contestants/disco-ball.webp')
+  assert.equal(views.get(avery)?.messages[1]?.senderAvatarId, null)
 
   await assignTeam(host, caseyJoined.viewer.role === 'player' ? caseyJoined.viewer.participantId : '', 'two')
   await settle()
@@ -155,7 +195,7 @@ try {
   assert.equal(resumed.viewer.role === 'player' ? resumed.viewer.participantId : null, averyJoined.viewer.role === 'player' ? averyJoined.viewer.participantId : null)
   assert.equal(resumed.participants.find((participant) => participant.name === 'Avery Wang')?.avatarId, 'contestants/disco-ball.webp')
 
-  console.log('Avatar sync/reconnect, host question visibility, chat privacy, roster-authoritative membership, lock enforcement, and play/pass authorization passed.')
+  console.log('Avatar chat identity, typing privacy, reconnect, host question visibility, chat privacy, roster-authoritative membership, lock enforcement, and play/pass authorization passed.')
 } finally {
   for (const socket of sockets) socket.disconnect()
 }
