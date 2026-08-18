@@ -32,12 +32,7 @@ function createRoom(socket: TestSocket): Promise<RoomSnapshot> {
 }
 
 function joinRoom(socket: TestSocket, code: string, name: string): Promise<RoomSnapshot> {
-  return new Promise((resolve, reject) => socket.emit('room:join', {
-    code,
-    name,
-    avatarId: null,
-    sessionId: `privacy-session-${name.toLowerCase()}-12345`,
-  }, (result) => unwrap(result, resolve, reject)))
+  return new Promise((resolve, reject) => socket.emit('room:join', { code, name }, (result) => unwrap(result, resolve, reject)))
 }
 
 function chooseTeam(socket: TestSocket, team: TeamId): Promise<RoomSnapshot> {

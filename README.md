@@ -26,17 +26,6 @@ Run `npm run test:game-packs` to verify Family Feud game-pack parsing and valida
 - Team chat history is filtered on the server. Players receive only their own team’s messages, and the host receives neither channel.
 - Rooms and chat history are held in memory for the game session and clear when the host leaves or the server restarts.
 
-## Player avatars from Cloudflare R2
-
-The avatar deck is a public, build-time catalog backed by Cloudflare R2. Copy `.env.example` to `.env.local`, then set:
-
-- `VITE_AVATAR_BASE_URL` to the bucket's public custom domain or `r2.dev` URL.
-- `VITE_AVATAR_KEYS` to the comma-separated object keys for the available images.
-
-Only catalog keys—not arbitrary image URLs—travel through multiplayer room state. Players may share an avatar, their last choice persists on that device, and initials remain available if no avatar is selected or an image fails to load. Avatar changes lock when the game begins. A disconnected player has 30 seconds to reconnect with the same private browser session before their roster seat is removed.
-
-For production, create GitHub Actions repository variables with the same two names. Identically named Actions secrets are also supported as a fallback, though variables are preferred because these values are public frontend configuration. The deployment workflow validates and passes them into the Vite and Docker builds; they must not contain R2 credentials.
-
 ## Family Feud host controls
 
 Before opening a room, the host can use **Build or edit** to author a question pack or upload a previously exported `.json` pack. Builder drafts save in that browser automatically; **Download JSON** creates a portable copy. The server validates and snapshots the selected pack when the room opens, so later draft edits do not change a game in progress.

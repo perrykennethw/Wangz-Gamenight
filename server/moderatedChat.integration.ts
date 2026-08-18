@@ -36,9 +36,7 @@ function result<T>(emit: (reply: (value: RoomResult<T>) => void) => void): Promi
 }
 
 const createRoom = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('room:create', config, reply))
-const sessionId = (name: string) => `test-session-${name.toLowerCase()}-12345`
-const joinRoom = (socket: TestSocket, code: string, name: string, avatarId: string | null = null, playerSessionId = sessionId(name)) => result<RoomSnapshot>((reply) => socket.emit('room:join', { code, name, avatarId, sessionId: playerSessionId }, reply))
-const updateIdentity = (socket: TestSocket, name: string, avatarId: string | null) => result<RoomSnapshot>((reply) => socket.emit('participant:update-identity', { name, avatarId }, reply))
+const joinRoom = (socket: TestSocket, code: string, name: string) => result<RoomSnapshot>((reply) => socket.emit('room:join', { code, name }, reply))
 const chooseTeam = (socket: TestSocket, team: TeamId) => result<RoomSnapshot>((reply) => socket.emit('room:choose-team', team, reply))
 const assignTeam = (socket: TestSocket, participantId: string, team: TeamId) => result<RoomSnapshot>((reply) => socket.emit('room:assign-team', { participantId, team }, reply))
 const randomizeTeams = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('room:randomize-teams', reply))
@@ -59,20 +57,12 @@ for (const socket of sockets) socket.on('room:snapshot', (snapshot) => views.set
 
 try {
   const created = await createRoom(host)
-  const averySessionId = sessionId('Avery')
-  const averyJoined = await joinRoom(avery, created.code, 'Avery', 'contestants/rocket.webp', averySessionId)
+  const averyJoined = await joinRoom(avery, created.code, 'Avery')
   const caseyJoined = await joinRoom(casey, created.code, 'Casey')
   const blakeJoined = await joinRoom(blake, created.code, 'Blake')
   await chooseTeam(avery, 'one')
   await chooseTeam(casey, 'one')
   await chooseTeam(blake, 'two')
-
-  await settle()
-  assert.equal(views.get(host)?.participants.find((participant) => participant.name === 'Avery')?.avatarId, 'contestants/rocket.webp')
-  await updateIdentity(avery, 'Avery Wang', 'contestants/disco-ball.webp')
-  await settle()
-  assert.equal(views.get(host)?.participants.find((participant) => participant.name === 'Avery Wang')?.avatarId, 'contestants/disco-ball.webp')
-  await assert.rejects(() => updateIdentity(avery, 'Avery Wang', 'https://example.com/not-allowed.webp'), /valid avatar/i)
 
   await sendMessage(avery, 'Comets only')
   await sendMessage(blake, 'Rockets only')
@@ -148,14 +138,7 @@ try {
   assert.equal(ended.playPass.status, 'closed')
   await sendMessage(blake, 'Rockets huddle reopened')
 
-  avery.disconnect()
-  const reconnectedAvery = await connect()
-  sockets.push(reconnectedAvery)
-  const resumed = await joinRoom(reconnectedAvery, created.code, 'Avery Wang', 'contestants/disco-ball.webp', averySessionId)
-  assert.equal(resumed.viewer.role === 'player' ? resumed.viewer.participantId : null, averyJoined.viewer.role === 'player' ? averyJoined.viewer.participantId : null)
-  assert.equal(resumed.participants.find((participant) => participant.name === 'Avery Wang')?.avatarId, 'contestants/disco-ball.webp')
-
-  console.log('Avatar sync/reconnect, host question visibility, chat privacy, roster-authoritative membership, lock enforcement, and play/pass authorization passed.')
+  console.log('Host question visibility, chat privacy, roster-authoritative membership, lock enforcement, and play/pass authorization passed.')
 } finally {
   for (const socket of sockets) socket.disconnect()
 }
