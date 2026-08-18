@@ -43,6 +43,10 @@ Game audio is host-side and disabled by default. The host can enable it, set one
 
 All shipped cues are original procedural tones synthesized at runtime by the Web Audio implementation in `src/gameAudio.ts`. The project does not ship or redistribute third-party audio recordings, so these cues require no external media license or attribution. If recorded replacements are added later, document their source, permission, and license here before release.
 
+## Shared answer timer
+
+The moderator can start a synchronized 5-, 25-, 30-, or 40-second timer from the lobby or either game. Starting a preset while another timer is running deliberately replaces it; **Stop & reset** clears it for everyone. The server owns the start time and deadline, so host, player, reconnecting, and presenter views all render the same countdown. Expiration is a visible notification only—it does not add a strike, close input, or advance the game.
+
 ## Family Feud host controls
 
 Before opening a room, the host can use **Build or edit** to author a question pack or upload a previously exported `.json` pack. Builder drafts save in that browser automatically; **Download JSON** creates a portable copy. The server validates and snapshots the selected pack when the room opens, so later draft edits do not change a game in progress.

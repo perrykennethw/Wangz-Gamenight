@@ -16,9 +16,16 @@ import type {
   RoomResult,
   RoomSnapshot,
   ServerToClientEvents,
+  SharedTimerState,
   TeamId,
 } from '../src/roomTypes.js'
 import { GamePackError, normalizeFeudGamePack } from '../src/feudGamePack.js'
+import {
+  createIdleSharedTimer,
+  expireSharedTimer,
+  isSharedTimerPreset,
+  startSharedTimer,
+} from '../src/sharedTimer.js'
 import { applySpinSolveCommand, createSpinSolveGame, viewSpinSolveGame, type SpinSolveState } from './spinSolve.js'
 
 interface Connection {
@@ -48,6 +55,9 @@ interface Room {
   }
   game: SpinSolveState | null
   buzzer: BuzzerState
+  timer: SharedTimerState
+  timerGeneration: number
+  timerTimeout: ReturnType<typeof setTimeout> | null
 }
 
 const rooms = new Map<string, Room>()
@@ -276,6 +286,7 @@ function snapshotFor(room: Room, socketId: string): RoomSnapshot {
     },
     playPass: playPassViewFor(room, connection, participant),
     buzzer: room.buzzer,
+    timer: room.timer,
     viewer: connection.role === 'host'
       ? { role: 'host' }
       : { role: 'player', participantId: participant?.id ?? '', team: participant?.team ?? null },
@@ -287,6 +298,34 @@ function syncRoom(room: Room): void {
   for (const socketId of room.connections.keys()) {
     io.sockets.sockets.get(socketId)?.emit('room:snapshot', snapshotFor(room, socketId))
   }
+}
+
+function cancelSharedTimerExpiration(room: Room): void {
+  room.timerGeneration += 1
+  if (room.timerTimeout) clearTimeout(room.timerTimeout)
+  room.timerTimeout = null
+}
+
+function scheduleSharedTimerExpiration(room: Room): void {
+  cancelSharedTimerExpiration(room)
+  if (room.timer.status !== 'running') return
+
+  const generation = room.timerGeneration
+  const roomCode = room.code
+  const delay = Math.max(0, room.timer.deadline - Date.now()) + 25
+  room.timerTimeout = setTimeout(() => {
+    const liveRoom = rooms.get(roomCode)
+    if (!liveRoom || liveRoom.timerGeneration !== generation || liveRoom.timer.status !== 'running') return
+
+    liveRoom.timerTimeout = null
+    const expired = expireSharedTimer(liveRoom.timer, Date.now())
+    if (expired.status === 'running') {
+      scheduleSharedTimerExpiration(liveRoom)
+      return
+    }
+    liveRoom.timer = expired
+    syncRoom(liveRoom)
+  }, delay)
 }
 
 function emitTypingUpdate(room: Room, sourceSocketId: string, update: ChatTypingUpdate): void {
@@ -395,6 +434,7 @@ function leaveCurrentRoom(
   socketRooms.delete(socket.id)
 
   if (connection?.role === 'host') {
+    cancelSharedTimerExpiration(room)
     for (const timer of room.disconnectTimers.values()) clearTimeout(timer)
     for (const memberSocketId of room.connections.keys()) {
       io.sockets.sockets.get(memberSocketId)?.emit('room:closed', 'The host closed this room.')
@@ -447,6 +487,9 @@ io.on('connection', (socket) => {
       playPass: closedPlayPass(),
       game: null,
       buzzer: { status: 'idle', winner: null, representatives: { one: null, two: null } },
+      timer: createIdleSharedTimer(),
+      timerGeneration: 0,
+      timerTimeout: null,
     }
     rooms.set(code, room)
     socketRooms.set(socket.id, code)
@@ -589,6 +632,36 @@ io.on('connection', (socket) => {
     }
     participants.forEach((participant, index) => { participant.team = index % 2 === 0 ? 'one' : 'two' })
 
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('timer:start', (details, reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) {
+      return reply({ ok: false, error: 'Only the host can start the shared timer.' })
+    }
+    const durationSeconds = isRecord(details) ? details.durationSeconds : undefined
+    if (!isSharedTimerPreset(durationSeconds)) {
+      return reply({ ok: false, error: 'Choose a 5-, 25-, 30-, or 40-second timer.' })
+    }
+
+    room.timer = startSharedTimer(durationSeconds, Date.now())
+    scheduleSharedTimerExpiration(room)
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('timer:stop', (reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) {
+      return reply({ ok: false, error: 'Only the host can stop the shared timer.' })
+    }
+
+    cancelSharedTimerExpiration(room)
+    room.timer = createIdleSharedTimer()
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
     syncRoom(room)

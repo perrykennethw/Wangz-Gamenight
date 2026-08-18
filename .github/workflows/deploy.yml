@@ -68,6 +68,9 @@ jobs:
       - name: Test game audio cues
         run: npm run test:audio
 
+      - name: Test shared timer state
+        run: npm run test:timers
+
       - name: Test Spin & Solve game logic
         run: npm run test:spin-solve
 
