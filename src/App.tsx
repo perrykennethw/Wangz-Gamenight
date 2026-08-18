@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CSSProperties, FormEvent } from "react";
+import {
+  avatarFor,
+  avatarOptions,
+  initials,
+  rememberedAvatarId,
+  rememberAvatarId,
+} from "./avatarCatalog";
 import { FeudGameBuilder, saveFeudGamePackDraft } from "./FeudGameBuilder";
 import { GamePackError, parseFeudGamePack } from "./feudGamePack";
 import { multiplierForRound, starterFeudPack } from "./gameData";
@@ -17,10 +24,12 @@ import {
 } from "./presenterChannel";
 import { roomClient } from "./roomClient";
 import type {
+  AvatarId,
   ChatMessage,
   FeudGameConfig,
   FeudGamePack,
   GameConfig,
+  Participant,
   PlayPassChoice,
   RoomSnapshot,
   SpinSolveCommand,
@@ -145,6 +154,124 @@ function Brand({ compact = false }: BrandProps) {
       <span className="brand__name">WANGZ</span>
       <span className="brand__sub">GAME NIGHT</span>
     </div>
+  );
+}
+
+function IdentityPortrait({
+  name,
+  avatarId,
+  compact = false,
+}: {
+  name: string;
+  avatarId: AvatarId | null;
+  compact?: boolean;
+}) {
+  const avatar = avatarFor(avatarId);
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
+  const showImage = avatar && avatar.url !== failedUrl;
+
+  return (
+    <span
+      className={`identity-portrait ${compact ? "identity-portrait--compact" : ""}`}
+      aria-hidden="true"
+    >
+      {showImage ? (
+        <img
+          src={avatar.url}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          onError={() => setFailedUrl(avatar.url)}
+        />
+      ) : (
+        <b>{initials(name)}</b>
+      )}
+    </span>
+  );
+}
+
+function PlayerIdentity({
+  participant,
+  compact = false,
+}: {
+  participant: Pick<Participant, "name" | "avatarId">;
+  compact?: boolean;
+}) {
+  return (
+    <span className={`player-identity ${compact ? "player-identity--compact" : ""}`}>
+      <IdentityPortrait name={participant.name} avatarId={participant.avatarId} compact={compact} />
+      <strong>{participant.name}</strong>
+    </span>
+  );
+}
+
+function AvatarPicker({
+  selected,
+  name,
+  onSelect,
+  compact = false,
+}: {
+  selected: AvatarId | null;
+  name: string;
+  onSelect: (avatarId: AvatarId | null) => void;
+  compact?: boolean;
+}) {
+  const [query, setQuery] = useState("");
+  const filteredAvatars = avatarOptions.filter((avatar) =>
+    avatar.label.toLowerCase().includes(query.trim().toLowerCase()),
+  );
+
+  return (
+    <fieldset className={`avatar-picker ${compact ? "avatar-picker--compact" : ""}`}>
+      <legend>Pick an avatar <span>Optional</span></legend>
+      <div className="avatar-picker__toolbar">
+        <p>Choose a favorite or keep your initials.</p>
+        {avatarOptions.length > 12 && (
+          <label>
+            <input
+              type="search"
+              aria-label="Search avatars"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search avatars"
+            />
+          </label>
+        )}
+      </div>
+      <div className="avatar-picker__grid">
+        <button
+          type="button"
+          className={!selected ? "is-selected" : ""}
+          onClick={() => onSelect(null)}
+          aria-pressed={!selected}
+          aria-label="Use my initials"
+        >
+          <IdentityPortrait name={name || "Player"} avatarId={null} compact={compact} />
+          <span>My initials</span>
+          {!selected && <i aria-hidden="true">✓</i>}
+        </button>
+        {filteredAvatars.map((avatar) => (
+          <button
+            type="button"
+            key={avatar.id}
+            className={selected === avatar.id ? "is-selected" : ""}
+            onClick={() => onSelect(avatar.id)}
+            aria-pressed={selected === avatar.id}
+            aria-label={`Choose ${avatar.label}`}
+          >
+            <IdentityPortrait name={avatar.label} avatarId={avatar.id} compact={compact} />
+            <span>{avatar.label}</span>
+            {selected === avatar.id && <i aria-hidden="true">✓</i>}
+          </button>
+        ))}
+      </div>
+      {query && !filteredAvatars.length && (
+        <p className="avatar-picker__empty">No avatars match “{query}”.</p>
+      )}
+      {!avatarOptions.length && (
+        <small>Your initials are ready. More avatars are coming soon.</small>
+      )}
+    </fieldset>
   );
 }
 
@@ -468,12 +595,13 @@ function Setup({
 
 interface JoinRoomProps {
   onBack: () => void;
-  onJoin: (code: string, name: string) => Promise<void>;
+  onJoin: (code: string, name: string, avatarId: AvatarId | null) => Promise<void>;
 }
 
 function JoinRoom({ onBack, onJoin }: JoinRoomProps) {
   const [code, setCode] = useState("");
   const [name, setName] = useState("");
+  const [avatarId, setAvatarId] = useState<AvatarId | null>(rememberedAvatarId);
   const [error, setError] = useState("");
   const [isJoining, setIsJoining] = useState(false);
 
@@ -482,7 +610,8 @@ function JoinRoom({ onBack, onJoin }: JoinRoomProps) {
     setError("");
     setIsJoining(true);
     try {
-      await onJoin(code, name);
+      rememberAvatarId(avatarId);
+      await onJoin(code, name, avatarId);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Could not join that room.",
@@ -544,6 +673,7 @@ function JoinRoom({ onBack, onJoin }: JoinRoomProps) {
               required
             />
           </label>
+          <AvatarPicker selected={avatarId} name={name} onSelect={setAvatarId} />
           {error && (
             <p className="form-error" role="alert">
               {error}
@@ -600,7 +730,7 @@ function TeamRoster({
         {players.length === 0 ? (
           <span className="empty-player">First seat is open</span>
         ) : (
-          players.map((player) => <span key={player.id}>{player.name}</span>)
+          players.map((player) => <PlayerIdentity key={player.id} participant={player} compact />)
         )}
       </div>
       {selectable && (
@@ -1205,6 +1335,69 @@ function playerBuzzerCopy(room: RoomSnapshot, participantId: string) {
   };
 }
 
+function LobbyAvatarEditor({ room, participantId }: { room: RoomSnapshot; participantId: string }) {
+  const participant = room.participants.find((player) => player.id === participantId);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [draftName, setDraftName] = useState(participant?.name ?? "");
+  useEffect(() => setDraftName(participant?.name ?? ""), [participant?.name]);
+  if (!participant || room.phase !== "lobby") return null;
+
+  const selectAvatar = async (avatarId: AvatarId | null) => {
+    setBusy(true);
+    setError("");
+    try {
+      await roomClient.updateIdentity(participant.name, avatarId);
+      rememberAvatarId(avatarId);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not update your avatar.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const saveName = async (event: React.SubmitEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setBusy(true);
+    setError("");
+    try {
+      await roomClient.updateIdentity(draftName, participant.avatarId);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not update your name.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <details className="lobby-avatar-editor">
+      <summary>
+        <PlayerIdentity participant={participant} compact />
+        <span>{busy ? "Saving look…" : "Change game face"}</span>
+      </summary>
+      <AvatarPicker
+        selected={participant.avatarId}
+        name={participant.name}
+        onSelect={selectAvatar}
+        compact
+      />
+      <form onSubmit={saveName}>
+        <label>
+          <span>Player-card name</span>
+          <input
+            value={draftName}
+            onChange={(event) => setDraftName(event.target.value)}
+            maxLength={24}
+            required
+          />
+        </label>
+        <button disabled={busy || draftName.trim() === participant.name}>Save name</button>
+      </form>
+      {error && <small role="alert">{error}</small>}
+    </details>
+  );
+}
+
 function PlayerBuzzerVariantA({
   room,
   participantId,
@@ -1304,7 +1497,7 @@ function PlayerBuzzerVariantC({
             {room.participants
               .filter((player) => player.team === team)
               .map((player) => (
-                <span key={player.id}>{player.name}</span>
+                <PlayerIdentity key={player.id} participant={player} compact />
               ))}
           </div>
         </aside>
@@ -1402,6 +1595,7 @@ function PlayerRoom({
             </span>
           </div>
         )}
+        <LobbyAvatarEditor room={room} participantId={viewer.participantId} />
         {!viewer.team ? (
           <>
             <div className="player-room__intro">
@@ -1445,7 +1639,7 @@ function PlayerRoom({
                 {room.participants
                   .filter((player) => player.team === viewer.team)
                   .map((player) => (
-                    <span key={player.id}>{player.name}</span>
+                    <PlayerIdentity key={player.id} participant={player} compact />
                   ))}
               </div>
             </aside>
@@ -2205,6 +2399,13 @@ function HostBuzzerPanel({ room }: { room: RoomSnapshot }) {
         {(["one", "two"] as TeamId[]).map((team) => (
           <label key={team}>
             <span>{teamName(room, team)}</span>
+            <div className="host-buzzer-rep-identity">
+              {buzzerRepresentative(room, team) ? (
+                <PlayerIdentity participant={buzzerRepresentative(room, team)!} compact />
+              ) : (
+                <small>Choose a player</small>
+              )}
+            </div>
             <select
               value={room.buzzer.representatives[team] ?? ""}
               disabled={room.buzzer.status === "armed" || isUpdating}
@@ -2420,7 +2621,14 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
             className={`buzzer-board-banner buzzer-board-banner--winner buzzer-board-banner--${room.buzzer.winner.team}`}
             role="status"
           >
-            <Bolt size={20} /> <strong>{room.buzzer.winner.playerName}</strong>
+            <Bolt size={20} />
+            <PlayerIdentity
+              participant={{
+                name: room.buzzer.winner.playerName,
+                avatarId: room.buzzer.winner.avatarId,
+              }}
+              compact
+            />
             <span>{teamName(room, room.buzzer.winner.team)} buzzed first</span>
           </div>
         )}
@@ -2497,9 +2705,9 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
 }
 
 function PresenterLobby({ state }: { state: LobbyPresentation }) {
-  const teams: Record<TeamId, string[]> = { one: [], two: [] };
+  const teams: Record<TeamId, LobbyPresentation["participants"]> = { one: [], two: [] };
   for (const participant of state.participants) {
-    if (participant.team) teams[participant.team].push(participant.name);
+    if (participant.team) teams[participant.team].push(participant);
   }
 
   return (
@@ -2531,7 +2739,13 @@ function PresenterLobby({ state }: { state: LobbyPresentation }) {
             <h2>{team === "one" ? state.teamOne : state.teamTwo}</h2>
             <div>
               {teams[team].length ? (
-                teams[team].map((name) => <b key={name}>{name}</b>)
+                teams[team].map((participant) => (
+                  <PlayerIdentity
+                    key={participant.name}
+                    participant={participant}
+                    compact
+                  />
+                ))
               ) : (
                 <i>Seats are open</i>
               )}
@@ -2633,7 +2847,13 @@ function PresenterFeud({ state }: { state: FeudPresentation }) {
             role="status"
           >
             <Bolt size={20} />
-            <strong>{state.buzzer.winner.playerName}</strong>
+            <PlayerIdentity
+              participant={{
+                name: state.buzzer.winner.playerName,
+                avatarId: state.buzzer.winner.avatarId,
+              }}
+              compact
+            />
             <span>
               {state.buzzer.winner.team === "one"
                 ? state.teamOne
@@ -2645,10 +2865,12 @@ function PresenterFeud({ state }: { state: FeudPresentation }) {
         {state.decision.status === "open" && (
           <div className="presenter-decision">
             <span>Team huddle</span>
-            <strong>
-              {state.decision.activePlayerName ?? state.teamOne} is choosing
-              Play or Pass
-            </strong>
+            {state.decision.activePlayer ? (
+              <PlayerIdentity participant={state.decision.activePlayer} compact />
+            ) : (
+              <strong>{state.teamOne}</strong>
+            )}
+            <strong>is choosing Play or Pass</strong>
           </div>
         )}
         {state.decision.status === "decided" && (
@@ -2824,8 +3046,8 @@ export default function App() {
     setScreen("host-lobby");
   };
 
-  const joinRoom = async (code: string, name: string) => {
-    const snapshot = await roomClient.joinRoom(code, name);
+  const joinRoom = async (code: string, name: string, avatarId: AvatarId | null) => {
+    const snapshot = await roomClient.joinRoom(code, name, avatarId);
     setRoom(snapshot);
     setScreen("player-room");
   };

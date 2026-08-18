@@ -3,6 +3,14 @@ export type RoomPhase = "lobby" | "playing";
 export type ParticipantRole = "host" | "player";
 export type BuzzerStatus = "idle" | "armed" | "locked";
 export type PlayPassChoice = "play" | "pass";
+export type AvatarId = string;
+
+export interface JoinRoomDetails {
+  code: string;
+  name: string;
+  avatarId: AvatarId | null;
+  sessionId: string;
+}
 
 export interface FeudAnswer {
   id: string;
@@ -54,7 +62,7 @@ export type RoomConfig =
 export interface Participant {
   id: string;
   name: string;
-  icon: string;
+  avatarId: AvatarId | null;
   team: TeamId | null;
 }
 
@@ -70,6 +78,7 @@ export interface ChatMessage {
 export interface BuzzerWinner {
   participantId: string;
   playerName: string;
+  avatarId: AvatarId | null;
   team: TeamId;
 }
 
@@ -171,7 +180,11 @@ export interface ClientToServerEvents {
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "room:join": (
-    details: { code: string; name: string },
+    details: JoinRoomDetails,
+    reply: (result: RoomResult<RoomSnapshot>) => void,
+  ) => void;
+  "participant:update-identity": (
+    details: { name: string; avatarId: AvatarId | null },
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "room:choose-team": (
