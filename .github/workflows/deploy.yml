@@ -65,6 +65,9 @@ jobs:
       - name: Test Family Feud game packs
         run: npm run test:game-packs
 
+      - name: Test game audio cues
+        run: npm run test:audio
+
       - name: Test Spin & Solve game logic
         run: npm run test:spin-solve
 

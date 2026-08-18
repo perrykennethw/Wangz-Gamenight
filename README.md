@@ -37,6 +37,12 @@ Only catalog keys—not arbitrary image URLs—travel through multiplayer room s
 
 For production, create GitHub Actions repository variables with the same two names. Identically named Actions secrets are also supported as a fallback, though variables are preferred because these values are public frontend configuration. The deployment workflow validates and passes them into the Vite and Docker builds; they must not contain R2 credentials.
 
+## Game audio cues
+
+Game audio is host-side and disabled by default. The host can enable it, set one master volume, stop playback, and manually replay the opening, wrong-answer, or repeat-answer cue. Starting a game plays the opening cue when audio is enabled; adding a Family Feud strike plays the wrong-answer cue; selecting an already revealed answer plays the repeat-answer cue. Starting another cue stops the current cue first so rapid host actions do not stack sounds.
+
+All shipped cues are original procedural tones synthesized at runtime by the Web Audio implementation in `src/gameAudio.ts`. The project does not ship or redistribute third-party audio recordings, so these cues require no external media license or attribution. If recorded replacements are added later, document their source, permission, and license here before release.
+
 ## Family Feud host controls
 
 Before opening a room, the host can use **Build or edit** to author a question pack or upload a previously exported `.json` pack. Builder drafts save in that browser automatically; **Download JSON** creates a portable copy. The server validates and snapshots the selected pack when the room opens, so later draft edits do not change a game in progress.
