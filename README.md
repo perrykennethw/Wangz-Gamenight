@@ -22,8 +22,9 @@ Run `npm run test:game-packs` to verify Family Feud game-pack parsing and valida
 ## Multiplayer rooms
 
 - The host creates an ephemeral room after configuring the teams.
-- Players join with a display name and select a team; that choice locks immediately.
-- Team chat history is filtered on the server. Players receive only their own team’s messages, and the host receives neither channel.
+- Players join with a display name and may select their initial team; that choice locks immediately unless the host moves them while the room is still in the lobby.
+- The host can drag players between lobby rosters, use accessible move buttons, or randomize everyone into balanced teams. When the count is odd, team one receives the extra player; late arrivals may still make their initial choice, and the host can randomize again.
+- A randomized lineup is announced on the presenter display. Team chat history is filtered on the server: players receive only their own team’s messages, while the host can moderate both channels.
 - Rooms and chat history are held in memory for the game session and clear when the host leaves or the server restarts.
 
 ## Player avatars from Cloudflare R2
