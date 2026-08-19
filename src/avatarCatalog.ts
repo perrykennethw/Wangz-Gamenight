@@ -1,4 +1,4 @@
-import type { AvatarId, Participant } from "./roomTypes";
+import { HOST_AVATAR_ID, type AvatarId, type Participant } from "./roomTypes";
 
 export interface AvatarOption {
   id: AvatarId;
@@ -21,7 +21,7 @@ function labelFromKey(key: string, index: number): string {
   return label || `Avatar ${index + 1}`;
 }
 
-export const avatarOptions: AvatarOption[] = baseUrl
+const configuredAvatars: AvatarOption[] = baseUrl
   ? objectKeys.map((key: string, index: number) => ({
       id: key,
       label: labelFromKey(key, index),
@@ -29,7 +29,22 @@ export const avatarOptions: AvatarOption[] = baseUrl
     }))
   : [];
 
-const avatarsById = new Map(avatarOptions.map((avatar) => [avatar.id, avatar]));
+const hostAvatar: AvatarOption | null = baseUrl
+  ? configuredAvatars.find((avatar) => avatar.id === HOST_AVATAR_ID) ?? {
+      id: HOST_AVATAR_ID,
+      label: "Mudkip",
+      url: `${baseUrl}/${encodeURIComponent(HOST_AVATAR_ID)}`,
+    }
+  : null;
+
+export const avatarOptions = configuredAvatars.filter(
+  (avatar) => avatar.id !== HOST_AVATAR_ID,
+);
+
+const avatarsById = new Map(
+  [...configuredAvatars, ...(hostAvatar ? [hostAvatar] : [])].map((avatar) => [avatar.id, avatar]),
+);
+const selectableAvatarsById = new Map(avatarOptions.map((avatar) => [avatar.id, avatar]));
 
 export function avatarFor(avatarId: AvatarId | null): AvatarOption | null {
   return avatarId ? avatarsById.get(avatarId) ?? null : null;
@@ -47,7 +62,7 @@ export function participantAvatar(participant: Pick<Participant, "avatarId">): A
 
 export function rememberedAvatarId(): AvatarId | null {
   const avatarId = window.localStorage.getItem("wangz-avatar-id");
-  return avatarFor(avatarId)?.id ?? null;
+  return avatarId ? selectableAvatarsById.get(avatarId)?.id ?? null : null;
 }
 
 export function rememberAvatarId(avatarId: AvatarId | null): void {

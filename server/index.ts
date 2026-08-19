@@ -3,21 +3,22 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { Server, type Socket } from 'socket.io'
-import type {
-  AvatarId,
-  ChatMessage,
-  ChatTypingUpdate,
-  BuzzerState,
-  ClientToServerEvents,
-  GameConfig,
-  Participant,
-  PlayPassChoice,
-  PlayPassPollView,
-  RoomResult,
-  RoomSnapshot,
-  ServerToClientEvents,
-  SharedTimerState,
-  TeamId,
+import {
+  HOST_AVATAR_ID,
+  type AvatarId,
+  type ChatMessage,
+  type ChatTypingUpdate,
+  type BuzzerState,
+  type ClientToServerEvents,
+  type GameConfig,
+  type Participant,
+  type PlayPassChoice,
+  type PlayPassPollView,
+  type RoomResult,
+  type RoomSnapshot,
+  type ServerToClientEvents,
+  type SharedTimerState,
+  type TeamId,
 } from '../src/roomTypes.js'
 import { GamePackError, normalizeFeudGamePack } from '../src/feudGamePack.js'
 import {
@@ -156,6 +157,12 @@ function normalizeAvatarId(value: unknown): AvatarId | null {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,127}$/.test(avatarId) || avatarId.includes('..')) {
     throw new Error('Choose a valid avatar.')
   }
+  return avatarId
+}
+
+function normalizePlayerAvatarId(value: unknown): AvatarId | null {
+  const avatarId = normalizeAvatarId(value)
+  if (avatarId === HOST_AVATAR_ID) throw new Error('Mudkip is reserved for the host.')
   return avatarId
 }
 
@@ -366,7 +373,7 @@ function setRoomTyping(room: Room, socketId: string, requestedTeam: unknown, isT
   const update: ChatTypingUpdate = {
     senderId: participant?.id ?? 'host',
     senderName: participant?.name ?? 'Host',
-    senderAvatarId: participant?.avatarId ?? null,
+    senderAvatarId: participant ? participant.avatarId : HOST_AVATAR_ID,
     team,
     isTyping: true,
   }
@@ -506,7 +513,7 @@ io.on('connection', (socket) => {
     let cleanSessionId: string
 
     try {
-      cleanAvatarId = normalizeAvatarId(avatarId)
+      cleanAvatarId = normalizePlayerAvatarId(avatarId)
       cleanSessionId = normalizeSessionId(sessionId)
     } catch (cause) {
       return reply({ ok: false, error: cause instanceof Error ? cause.message : 'That player identity is not valid.' })
@@ -574,7 +581,7 @@ io.on('connection', (socket) => {
 
     try {
       participant.name = cleanName
-      participant.avatarId = normalizeAvatarId(avatarId)
+      participant.avatarId = normalizePlayerAvatarId(avatarId)
     } catch (cause) {
       return reply({ ok: false, error: cause instanceof Error ? cause.message : 'Choose a valid avatar.' })
     }
@@ -686,7 +693,7 @@ io.on('connection', (socket) => {
       id: randomUUID(),
       senderId: participant?.id ?? 'host',
       senderName: participant?.name ?? 'Host',
-      senderAvatarId: participant?.avatarId ?? null,
+      senderAvatarId: participant ? participant.avatarId : HOST_AVATAR_ID,
       team: messageTeam,
       text: cleanText,
       sentAt: Date.now(),

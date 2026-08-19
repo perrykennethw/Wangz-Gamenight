@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict'
 import { io, type Socket } from 'socket.io-client'
 import { starterFeudPack } from '../src/gameData.js'
-import type {
-  ChatMessage,
-  ChatTypingUpdate,
-  ClientToServerEvents,
-  GameConfig,
-  PlayPassChoice,
-  RoomResult,
-  RoomSnapshot,
-  ServerToClientEvents,
-  SharedTimerPreset,
-  TeamId,
+import {
+  HOST_AVATAR_ID,
+  type ChatMessage,
+  type ChatTypingUpdate,
+  type ClientToServerEvents,
+  type GameConfig,
+  type PlayPassChoice,
+  type RoomResult,
+  type RoomSnapshot,
+  type ServerToClientEvents,
+  type SharedTimerPreset,
+  type TeamId,
 } from '../src/roomTypes.js'
 
 type TestSocket = Socket<ServerToClientEvents, ClientToServerEvents>
@@ -72,6 +73,7 @@ try {
   const averySessionId = sessionId('Avery')
   const averyJoined = await joinRoom(avery, created.code, 'Avery', 'contestants/rocket.webp', averySessionId)
   const caseyJoined = await joinRoom(casey, created.code, 'Casey')
+  await assert.rejects(() => joinRoom(blake, created.code, 'Blake', HOST_AVATAR_ID), /reserved for the host/i)
   const blakeJoined = await joinRoom(blake, created.code, 'Blake')
   await chooseTeam(avery, 'one')
   await chooseTeam(casey, 'one')
@@ -105,6 +107,7 @@ try {
   await settle()
   assert.equal(views.get(host)?.participants.find((participant) => participant.name === 'Avery Wang')?.avatarId, 'contestants/disco-ball.webp')
   await assert.rejects(() => updateIdentity(avery, 'Avery Wang', 'https://example.com/not-allowed.webp'), /valid avatar/i)
+  await assert.rejects(() => updateIdentity(avery, 'Avery Wang', HOST_AVATAR_ID), /reserved for the host/i)
 
   setTyping(avery, true)
   await settle()
@@ -128,7 +131,7 @@ try {
   assert.deepEqual(typingUpdates.get(blake)?.at(-1), {
     senderId: 'host',
     senderName: 'Host',
-    senderAvatarId: null,
+    senderAvatarId: HOST_AVATAR_ID,
     team: 'two',
     isTyping: true,
   })
@@ -145,9 +148,10 @@ try {
   assert.deepEqual(views.get(host)?.teamChats.two?.map((message) => message.text), ['Rockets only'])
   assert.deepEqual(views.get(avery)?.messages.map((message) => message.text), ['Comets only', 'Host checking in'])
   assert.deepEqual(views.get(blake)?.messages.map((message) => message.text), ['Rockets only'])
+  assert.equal(views.get(blake)?.messages[0]?.senderAvatarId, null)
   assert.equal(views.get(blake)?.teamChats.one, undefined)
   assert.equal(views.get(avery)?.messages[0]?.senderAvatarId, 'contestants/disco-ball.webp')
-  assert.equal(views.get(avery)?.messages[1]?.senderAvatarId, null)
+  assert.equal(views.get(avery)?.messages[1]?.senderAvatarId, HOST_AVATAR_ID)
 
   await assignTeam(host, caseyParticipantId, 'two')
   await settle()

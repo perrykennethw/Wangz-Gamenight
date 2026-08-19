@@ -7,6 +7,8 @@ export type BuzzerStatus = "idle" | "armed" | "locked";
 export type PlayPassChoice = "play" | "pass";
 export type AvatarId = string;
 
+export const HOST_AVATAR_ID: AvatarId = "Mudkip.svg";
+
 export type { SharedTimerPreset, SharedTimerState } from "./sharedTimer.js";
 
 export interface JoinRoomDetails {
