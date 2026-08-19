@@ -1,4 +1,5 @@
 import { HOST_AVATAR_ID, type AvatarId, type Participant } from "./roomTypes";
+import { isValidAvatarId } from "./avatarId";
 
 export interface AvatarOption {
   id: AvatarId;
@@ -10,7 +11,7 @@ const baseUrl = (import.meta.env.VITE_AVATAR_BASE_URL ?? "").replace(/\/$/, "");
 const objectKeys = (import.meta.env.VITE_AVATAR_KEYS ?? "")
   .split(",")
   .map((key: string) => key.trim())
-  .filter(Boolean);
+  .filter(isValidAvatarId);
 
 function labelFromKey(key: string, index: number): string {
   const filename = key.split("/").at(-1) ?? "";

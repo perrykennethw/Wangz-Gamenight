@@ -71,7 +71,7 @@ for (const socket of sockets) {
 try {
   const created = await createRoom(host)
   const averySessionId = sessionId('Avery')
-  const averyJoined = await joinRoom(avery, created.code, 'Avery', 'contestants/rocket.webp', averySessionId)
+  const averyJoined = await joinRoom(avery, created.code, 'Avery', 'contestants/rocket rider.webp', averySessionId)
   const caseyJoined = await joinRoom(casey, created.code, 'Casey')
   await assert.rejects(() => joinRoom(blake, created.code, 'Blake', HOST_AVATAR_ID), /reserved for the host/i)
   const blakeJoined = await joinRoom(blake, created.code, 'Blake')
@@ -102,10 +102,10 @@ try {
   for (const socket of sockets) assert.equal(views.get(socket)?.timer.status, 'idle')
 
   await settle()
-  assert.equal(views.get(host)?.participants.find((participant) => participant.name === 'Avery')?.avatarId, 'contestants/rocket.webp')
-  await updateIdentity(avery, 'Avery Wang', 'contestants/disco-ball.webp')
+  assert.equal(views.get(host)?.participants.find((participant) => participant.name === 'Avery')?.avatarId, 'contestants/rocket rider.webp')
+  await updateIdentity(avery, 'Avery Wang', 'contestants/disco ball.webp')
   await settle()
-  assert.equal(views.get(host)?.participants.find((participant) => participant.name === 'Avery Wang')?.avatarId, 'contestants/disco-ball.webp')
+  assert.equal(views.get(host)?.participants.find((participant) => participant.name === 'Avery Wang')?.avatarId, 'contestants/disco ball.webp')
   await assert.rejects(() => updateIdentity(avery, 'Avery Wang', 'https://example.com/not-allowed.webp'), /valid avatar/i)
   await assert.rejects(() => updateIdentity(avery, 'Avery Wang', HOST_AVATAR_ID), /reserved for the host/i)
 
@@ -114,7 +114,7 @@ try {
   assert.deepEqual(typingUpdates.get(host)?.at(-1), {
     senderId: averyJoined.viewer.role === 'player' ? averyJoined.viewer.participantId : '',
     senderName: 'Avery Wang',
-    senderAvatarId: 'contestants/disco-ball.webp',
+    senderAvatarId: 'contestants/disco ball.webp',
     team: 'one',
     isTyping: true,
   })
@@ -150,7 +150,7 @@ try {
   assert.deepEqual(views.get(blake)?.messages.map((message) => message.text), ['Rockets only'])
   assert.equal(views.get(blake)?.messages[0]?.senderAvatarId, null)
   assert.equal(views.get(blake)?.teamChats.one, undefined)
-  assert.equal(views.get(avery)?.messages[0]?.senderAvatarId, 'contestants/disco-ball.webp')
+  assert.equal(views.get(avery)?.messages[0]?.senderAvatarId, 'contestants/disco ball.webp')
   assert.equal(views.get(avery)?.messages[1]?.senderAvatarId, HOST_AVATAR_ID)
 
   await assignTeam(host, caseyParticipantId, 'two')
@@ -243,9 +243,9 @@ try {
   avery.disconnect()
   const reconnectedAvery = await connect()
   sockets.push(reconnectedAvery)
-  const resumed = await joinRoom(reconnectedAvery, created.code, 'Avery Wang', 'contestants/disco-ball.webp', averySessionId)
+  const resumed = await joinRoom(reconnectedAvery, created.code, 'Avery Wang', 'contestants/disco ball.webp', averySessionId)
   assert.equal(resumed.viewer.role === 'player' ? resumed.viewer.participantId : null, averyJoined.viewer.role === 'player' ? averyJoined.viewer.participantId : null)
-  assert.equal(resumed.participants.find((participant) => participant.name === 'Avery Wang')?.avatarId, 'contestants/disco-ball.webp')
+  assert.equal(resumed.participants.find((participant) => participant.name === 'Avery Wang')?.avatarId, 'contestants/disco ball.webp')
   assert.deepEqual(resumed.timer, reconnectTimer.timer)
   await stopTimer(host)
 

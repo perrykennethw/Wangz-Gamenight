@@ -34,6 +34,8 @@ The avatar deck is a public, build-time catalog backed by Cloudflare R2. Copy `.
 - `VITE_AVATAR_BASE_URL` to the bucket's public custom domain or `r2.dev` URL.
 - `VITE_AVATAR_KEYS` to the comma-separated object keys for the available images.
 
+Enter object keys exactly as they appear in R2, including literal spaces such as `contestants/Space Cat.webp`. Do not replace spaces with `%20`; the app safely URL-encodes each path segment when it loads the image.
+
 Only catalog keys—not arbitrary image URLs—travel through multiplayer room state. Players may share an avatar, their last choice persists on that device, and initials remain available if no avatar is selected or an image fails to load. Avatar changes lock when the game begins. A disconnected player has 30 seconds to reconnect with the same private browser session before their roster seat is removed.
 
 `Mudkip.svg` is reserved for the host. The app loads it from the same R2 base URL for host chat and typing identity, omits it from player avatar pickers, and rejects player attempts to submit that key directly.
