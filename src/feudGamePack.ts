@@ -126,7 +126,7 @@ function normalizeQuestions(
         points: Number.isInteger(points) ? points : 0,
         ...(aliases.length > 0 ? { aliases } : {}),
       }
-    })
+    }).sort((left, right) => right.points - left.points)
 
     return {
       id: cleanText(question.id) || makeId(section === 'Question' ? 'question' : 'fast-money', questionIndex, prompt),
