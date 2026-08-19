@@ -16,8 +16,8 @@ const alternateImported = parseFeudGamePack(JSON.stringify({
   rounds: [{
     question: 'Name a popular breakfast food.',
     answers: [
-      { ans: 'Eggs', pnt: 30 },
       { ans: 'Cereal', pnt: 25 },
+      { ans: 'Eggs', pnt: 30 },
     ],
     multiply: 2,
   }],

@@ -2328,22 +2328,40 @@ function AnswerTile({
 }: AnswerTileProps) {
   return (
     <button
-      className={`answer-tile ${revealed ? "is-revealed" : ""}`}
+      className={`answer-tile answer-tile--moderator ${revealed ? "is-revealed" : ""}`}
       onClick={onReveal}
       aria-label={
-        revealed ? `${answer}, ${points} points` : `Reveal answer ${number}`
+        revealed
+          ? `${answer}, ${points} points`
+          : `Reveal answer ${number}: ${answer}, ${points} points`
       }
     >
-      <span className="answer-tile__face answer-tile__front">
+      <span
+        className="answer-tile__face answer-tile__front"
+        aria-hidden={revealed}
+      >
         <b>{number}</b>
-        <small>Reveal</small>
+        <span className="answer-tile__moderator-copy">
+          <small>Click to reveal</small>
+          <strong>{answer}</strong>
+        </span>
+        <em>{points}</em>
       </span>
-      <span className="answer-tile__face answer-tile__back">
+      <span
+        className="answer-tile__face answer-tile__back"
+        aria-hidden={!revealed}
+      >
         <b>{answer}</b>
         <strong>{points}</strong>
       </span>
     </button>
   );
+}
+
+function answerGridStyle(answerCount: number): CSSProperties {
+  return {
+    "--answer-grid-rows": Math.max(1, Math.ceil(answerCount / 2)),
+  } as CSSProperties;
 }
 
 const consonants = "BCDFGHJKLMNPQRSTVWXYZ".split("");
@@ -3259,7 +3277,10 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
           </div>
         )}
         <h1>{question.prompt}</h1>
-        <div className="answers-grid">
+        <div
+          className="answers-grid"
+          style={answerGridStyle(question.answers.length)}
+        >
           {question.answers.map((answer, index) => (
             <AnswerTile
               key={answer.id}
@@ -3537,7 +3558,10 @@ function PresenterFeud({ state }: { state: FeudPresentation }) {
           <h1>Listen to the host</h1>
           <p>Answers appear here as they’re revealed.</p>
         </div>
-        <div className="answers-grid">
+        <div
+          className="answers-grid"
+          style={answerGridStyle(state.question.answers.length)}
+        >
           {state.question.answers.map((answer, index) => (
             <PresenterAnswerTile
               key={answer.id}
