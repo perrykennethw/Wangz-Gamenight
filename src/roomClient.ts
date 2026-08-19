@@ -10,6 +10,7 @@ import type {
   RoomResult,
   RoomSnapshot,
   ServerToClientEvents,
+  SharedTimerPreset,
   SpinSolveCommand,
   TeamId,
 } from "./roomTypes";
@@ -112,6 +113,22 @@ class RoomClient {
   randomizeTeams(): Promise<RoomSnapshot> {
     return new Promise((resolve, reject) => {
       this.socket.emit("room:randomize-teams", (result) =>
+        this.finish(result, resolve, reject),
+      );
+    });
+  }
+
+  startTimer(durationSeconds: SharedTimerPreset): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit("timer:start", { durationSeconds }, (result) =>
+        this.finish(result, resolve, reject),
+      );
+    });
+  }
+
+  stopTimer(): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit("timer:stop", (result) =>
         this.finish(result, resolve, reject),
       );
     });

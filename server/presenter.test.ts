@@ -39,6 +39,12 @@ const room: RoomSnapshot = {
     winner: { participantId: 'private-player-id', playerName: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' },
     representatives: { one: 'private-player-id', two: 'other-private-id' },
   },
+  timer: {
+    status: 'running',
+    durationSeconds: 25,
+    startedAt: 1_000,
+    deadline: 26_000,
+  },
   viewer: { role: 'host' },
   game: null,
 }
@@ -71,6 +77,7 @@ assert.deepEqual(lobby.participants, [{ name: 'Avery', avatarId: 'contestants/ro
 assert.deepEqual(feud.decision.activePlayer, { name: 'Avery', avatarId: 'contestants/rocket.webp' })
 assert.deepEqual(feud.buzzer.winner, { playerName: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' })
 assert.deepEqual(feud.revealed, [0])
+assert.deepEqual(feud.timer, room.timer)
 assert.equal(feud.question.answers[0].label, config.pack.questions[0].answers[0].label)
 assert.equal(feud.question.answers[1].label, '')
 assert.equal(JSON.stringify(feud).includes(config.pack.questions[0].prompt), false)

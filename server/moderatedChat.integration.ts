@@ -10,6 +10,7 @@ import type {
   RoomResult,
   RoomSnapshot,
   ServerToClientEvents,
+  SharedTimerPreset,
   TeamId,
 } from '../src/roomTypes.js'
 
@@ -43,6 +44,8 @@ const updateIdentity = (socket: TestSocket, name: string, avatarId: string | nul
 const chooseTeam = (socket: TestSocket, team: TeamId) => result<RoomSnapshot>((reply) => socket.emit('room:choose-team', team, reply))
 const assignTeam = (socket: TestSocket, participantId: string, team: TeamId) => result<RoomSnapshot>((reply) => socket.emit('room:assign-team', { participantId, team }, reply))
 const randomizeTeams = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('room:randomize-teams', reply))
+const startTimer = (socket: TestSocket, durationSeconds: SharedTimerPreset) => result<RoomSnapshot>((reply) => socket.emit('timer:start', { durationSeconds }, reply))
+const stopTimer = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('timer:stop', reply))
 const sendMessage = (socket: TestSocket, text: string, team?: TeamId) => result<ChatMessage>((reply) => socket.emit('chat:send', { text, team }, reply))
 const setTyping = (socket: TestSocket, isTyping: boolean, team?: TeamId) => socket.emit('chat:typing', { isTyping, team })
 const startGame = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('game:start', reply))
@@ -73,6 +76,24 @@ try {
   await chooseTeam(avery, 'one')
   await chooseTeam(casey, 'one')
   await chooseTeam(blake, 'two')
+
+  await assert.rejects(() => startTimer(avery, 5), /only the host/i)
+  await assert.rejects(() => stopTimer(avery), /only the host/i)
+  const twentyFiveSecondTimer = await startTimer(host, 25)
+  assert.equal(twentyFiveSecondTimer.timer.status, 'running')
+  assert.equal(twentyFiveSecondTimer.timer.durationSeconds, 25)
+  assert.ok(twentyFiveSecondTimer.timer.deadline > Date.now())
+  await settle()
+  for (const socket of sockets) assert.deepEqual(views.get(socket)?.timer, twentyFiveSecondTimer.timer)
+
+  const replacementTimer = await startTimer(host, 5)
+  assert.equal(replacementTimer.timer.status, 'running')
+  assert.equal(replacementTimer.timer.durationSeconds, 5)
+  assert.ok(replacementTimer.timer.deadline < twentyFiveSecondTimer.timer.deadline)
+  const stoppedTimer = await stopTimer(host)
+  assert.equal(stoppedTimer.timer.status, 'idle')
+  await settle()
+  for (const socket of sockets) assert.equal(views.get(socket)?.timer.status, 'idle')
 
   await settle()
   assert.equal(views.get(host)?.participants.find((participant) => participant.name === 'Avery')?.avatarId, 'contestants/rocket.webp')
@@ -188,14 +209,17 @@ try {
   assert.equal(ended.playPass.status, 'closed')
   await sendMessage(blake, 'Rockets huddle reopened')
 
+  const reconnectTimer = await startTimer(host, 40)
   avery.disconnect()
   const reconnectedAvery = await connect()
   sockets.push(reconnectedAvery)
   const resumed = await joinRoom(reconnectedAvery, created.code, 'Avery Wang', 'contestants/disco-ball.webp', averySessionId)
   assert.equal(resumed.viewer.role === 'player' ? resumed.viewer.participantId : null, averyJoined.viewer.role === 'player' ? averyJoined.viewer.participantId : null)
   assert.equal(resumed.participants.find((participant) => participant.name === 'Avery Wang')?.avatarId, 'contestants/disco-ball.webp')
+  assert.deepEqual(resumed.timer, reconnectTimer.timer)
+  await stopTimer(host)
 
-  console.log('Avatar chat identity, typing privacy, reconnect, host question visibility, chat privacy, roster-authoritative membership, lock enforcement, and play/pass authorization passed.')
+  console.log('Shared timer synchronization, avatar chat identity, typing privacy, reconnect, host question visibility, chat privacy, roster-authoritative membership, lock enforcement, and play/pass authorization passed.')
 } finally {
   for (const socket of sockets) socket.disconnect()
 }

@@ -24,6 +24,12 @@ import {
   type SpinPresentation,
 } from "./presenterChannel";
 import { roomClient } from "./roomClient";
+import {
+  SHARED_TIMER_PRESETS,
+  remainingSharedTimerMilliseconds,
+  type SharedTimerPreset,
+  type SharedTimerState,
+} from "./sharedTimer";
 import type {
   AvatarId,
   ChatMessage,
@@ -232,6 +238,137 @@ function GameAudioControls() {
         )}
       </div>
       {audio.error && <p role="alert">{audio.error}</p>}
+    </section>
+  );
+}
+
+function useSharedTimerSeconds(timer: SharedTimerState): number {
+  const calculate = () => Math.ceil(
+    remainingSharedTimerMilliseconds(timer, Date.now()) / 1000,
+  );
+  const [seconds, setSeconds] = useState(calculate);
+
+  useEffect(() => {
+    setSeconds(calculate());
+    if (timer.status !== "running") return;
+    const interval = window.setInterval(() => setSeconds(calculate()), 100);
+    return () => window.clearInterval(interval);
+  }, [timer.status, timer.deadline]);
+
+  return seconds;
+}
+
+function SharedTimerReadout({
+  timer,
+  className = "",
+}: {
+  timer: SharedTimerState;
+  className?: string;
+}) {
+  const seconds = useSharedTimerSeconds(timer);
+  const status = timer.status === "running" && seconds === 0
+    ? "expired"
+    : timer.status;
+  const label = status === "idle"
+    ? "Shared timer ready"
+    : status === "expired"
+      ? "Time is up"
+      : `${seconds} second${seconds === 1 ? "" : "s"} remaining`;
+
+  return (
+    <div
+      className={`shared-timer-readout shared-timer-readout--${status} ${className}`}
+      role="timer"
+      aria-label={label}
+      aria-live={status === "expired" ? "assertive" : "off"}
+    >
+      <span>Shared timer</span>
+      <strong>{status === "idle" ? "—" : status === "expired" ? "TIME" : seconds}</strong>
+      <small>
+        {status === "idle"
+          ? "Ready"
+          : status === "expired"
+            ? "Time’s up"
+            : "seconds left"}
+      </small>
+    </div>
+  );
+}
+
+function SharedTimerAudience({
+  timer,
+  className = "",
+}: {
+  timer: SharedTimerState;
+  className?: string;
+}) {
+  if (timer.status === "idle") return null;
+  return <SharedTimerReadout timer={timer} className={`shared-timer-audience ${className}`} />;
+}
+
+function SharedTimerHostPanel({ timer }: { timer: SharedTimerState }) {
+  const [updating, setUpdating] = useState<SharedTimerPreset | "stop" | null>(null);
+  const [error, setError] = useState("");
+
+  const start = async (durationSeconds: SharedTimerPreset) => {
+    setError("");
+    setUpdating(durationSeconds);
+    try {
+      await roomClient.startTimer(durationSeconds);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not start the timer.");
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  const stop = async () => {
+    setError("");
+    setUpdating("stop");
+    try {
+      await roomClient.stopTimer();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not stop the timer.");
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  return (
+    <section className="shared-timer-panel" aria-label="Shared timer controls">
+      <SharedTimerReadout timer={timer} />
+      <div className="shared-timer-panel__presets" role="group" aria-label="Start a shared timer">
+        {SHARED_TIMER_PRESETS.map((duration) => {
+          const active = timer.status === "running" && timer.durationSeconds === duration;
+          const action = timer.status === "running"
+            ? active ? "Restart" : "Replace timer with"
+            : "Start";
+          return (
+            <button
+              type="button"
+              key={duration}
+              aria-label={`${action} ${duration} seconds`}
+              aria-pressed={active}
+              disabled={updating !== null}
+              onClick={() => void start(duration)}
+            >
+              {updating === duration ? "Starting…" : `${duration}s`}
+            </button>
+          );
+        })}
+      </div>
+      <button
+        type="button"
+        className="shared-timer-panel__stop"
+        disabled={timer.status === "idle" || updating !== null}
+        onClick={() => void stop()}
+      >
+        {updating === "stop" ? "Resetting…" : "Stop & reset"}
+      </button>
+      {timer.status === "running" && (
+        <p>Starting another preset replaces this countdown.</p>
+      )}
+      {error && <p className="shared-timer-panel__error" role="alert">{error}</p>}
     </section>
   );
 }
@@ -1357,6 +1494,7 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
           <span>Host can moderate both private huddles</span>
         </div>
         <GameAudioControls />
+        <SharedTimerHostPanel timer={room.timer} />
         <div className="lobby-team-tools">
           <span>Players can pick a side, or let the host deal the teams.</span>
           <button
@@ -1785,6 +1923,7 @@ function PlayerRoom({
             </span>
           </div>
         )}
+        <SharedTimerAudience timer={room.timer} className="player-shared-timer" />
         <LobbyAvatarEditor room={room} participantId={viewer.participantId} />
         {!viewer.team ? (
           <>
@@ -2406,6 +2545,7 @@ function SpinSolveHostGame({
       </header>
       <div className="spin-audio-controls">
         <GameAudioControls />
+        <SharedTimerHostPanel timer={room.timer} />
       </div>
       <div className="spin-game-stage">
         <SpinScoreboard game={game} config={room.config} />
@@ -2849,6 +2989,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
 
       <section className="host-controls">
         <GameAudioControls />
+        <SharedTimerHostPanel timer={room.timer} />
         <HostBuzzerPanel room={room} />
         <HostPlayPassPanel room={room} />
         <div className="strike-panel">
@@ -3210,9 +3351,18 @@ function PresenterScreen({ roomCode }: { roomCode: string }) {
       </main>
     );
   }
-  if (state.mode === "lobby") return <PresenterLobby state={state} />;
-  if (state.mode === "feud") return <PresenterFeud state={state} />;
-  return <PresenterSpin state={state} />;
+  const screen = state.mode === "lobby"
+    ? <PresenterLobby state={state} />
+    : state.mode === "feud"
+      ? <PresenterFeud state={state} />
+      : <PresenterSpin state={state} />;
+
+  return (
+    <>
+      <SharedTimerAudience timer={state.timer} className="presenter-shared-timer" />
+      {screen}
+    </>
+  );
 }
 
 export default function App() {

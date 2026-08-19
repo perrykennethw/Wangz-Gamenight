@@ -4,6 +4,7 @@ import type {
   FeudAnswer,
   FeudGameConfig,
   RoomSnapshot,
+  SharedTimerState,
   SpinSolveGameConfig,
   SpinSolveView,
   TeamId,
@@ -13,6 +14,7 @@ interface PresentationBase {
   code: string;
   teamOne: string;
   teamTwo: string;
+  timer: SharedTimerState;
 }
 
 export interface LobbyPresentation extends PresentationBase {
@@ -105,6 +107,7 @@ export function createLobbyPresentation(room: RoomSnapshot): LobbyPresentation {
     game: room.config.kind === "feud" ? "Family Feud" : "Spin & Solve",
     teamOne: room.config.teamOne,
     teamTwo: room.config.teamTwo,
+    timer: { ...room.timer },
     participants: room.participants.map(({ name, avatarId, team }) => ({ name, avatarId, team })),
   };
 }
@@ -120,6 +123,7 @@ export function createFeudPresentation(
     code: input.room.code,
     teamOne: input.config.teamOne,
     teamTwo: input.config.teamTwo,
+    timer: { ...input.room.timer },
     title: input.config.pack.title,
     winningScore: input.config.winningScore,
     round: input.round,
@@ -165,6 +169,7 @@ export function createSpinPresentation(
     code: room.code,
     teamOne: room.config.teamOne,
     teamTwo: room.config.teamTwo,
+    timer: { ...room.timer },
     config: { ...room.config },
     game: { ...room.game },
   };

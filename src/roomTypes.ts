@@ -1,9 +1,13 @@
+import type { SharedTimerPreset, SharedTimerState } from "./sharedTimer.js";
+
 export type TeamId = "one" | "two";
 export type RoomPhase = "lobby" | "playing";
 export type ParticipantRole = "host" | "player";
 export type BuzzerStatus = "idle" | "armed" | "locked";
 export type PlayPassChoice = "play" | "pass";
 export type AvatarId = string;
+
+export type { SharedTimerPreset, SharedTimerState } from "./sharedTimer.js";
 
 export interface JoinRoomDetails {
   code: string;
@@ -163,6 +167,7 @@ export interface RoomSnapshot {
   chat: ChatState;
   playPass: PlayPassPollView;
   buzzer: BuzzerState;
+  timer: SharedTimerState;
   viewer: RoomViewer;
   game: GameView | null;
 }
@@ -205,6 +210,13 @@ export interface ClientToServerEvents {
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "room:randomize-teams": (
+    reply: (result: RoomResult<RoomSnapshot>) => void,
+  ) => void;
+  "timer:start": (
+    details: { durationSeconds: SharedTimerPreset },
+    reply: (result: RoomResult<RoomSnapshot>) => void,
+  ) => void;
+  "timer:stop": (
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "room:leave": () => void;
