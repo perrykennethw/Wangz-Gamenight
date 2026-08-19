@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   GamePackError,
+  DEFAULT_FAST_MONEY_TIMERS,
+  FAST_MONEY_QUESTION_COUNT,
   MAX_FEUD_ANSWERS,
   MAX_FEUD_QUESTIONS,
   cloneFeudGamePack,
@@ -8,7 +10,7 @@ import {
   normalizeFeudGamePack,
   parseFeudGamePack,
 } from './feudGamePack'
-import type { FeudAnswer, FeudGamePack, FeudQuestion } from './roomTypes'
+import type { FeudAnswer, FeudFastMoneyPack, FeudGamePack, FeudQuestion } from './roomTypes'
 
 const draftStorageKey = 'wangz.feud-pack-draft.v1'
 
@@ -55,6 +57,13 @@ function makeQuestion(): FeudQuestion {
     id: crypto.randomUUID(),
     prompt: '',
     answers: [makeAnswer(40), makeAnswer(25)],
+  }
+}
+
+function makeFastMoney(): FeudFastMoneyPack {
+  return {
+    timers: { ...DEFAULT_FAST_MONEY_TIMERS },
+    questions: Array.from({ length: FAST_MONEY_QUESTION_COUNT }, () => makeQuestion()),
   }
 }
 
@@ -118,6 +127,15 @@ export function FeudGameBuilder({ initialPack, onBack, onUsePack }: FeudGameBuil
 
   const removeQuestion = (questionIndex: number) => {
     setPack((current) => ({ ...cloneFeudGamePack(current), questions: current.questions.filter((_, index) => index !== questionIndex) }))
+  }
+
+  const updateFastMoneyQuestion = (questionIndex: number, update: (question: FeudQuestion) => void) => {
+    setPack((current) => {
+      const next = cloneFeudGamePack(current)
+      if (!next.fastMoney) return current
+      update(next.fastMoney.questions[questionIndex])
+      return next
+    })
   }
 
   const importFile = async (file: File | undefined) => {
@@ -285,6 +303,135 @@ export function FeudGameBuilder({ initialPack, onBack, onUsePack }: FeudGameBuil
             disabled={pack.questions.length >= MAX_FEUD_QUESTIONS}
             onClick={() => setPack((current) => ({ ...cloneFeudGamePack(current), questions: [...current.questions, makeQuestion()] }))}
           ><span>+</span><strong>Add another question</strong><small>Build the next board</small></button>
+
+          <section className="builder-fast-money">
+            <header>
+              <div>
+                <span>Bonus finale</span>
+                <h2>Fast Money</h2>
+                <p>Five quick questions for two contestants and a 200-point goal.</p>
+              </div>
+              {pack.fastMoney ? (
+                <button
+                  type="button"
+                  className="is-danger"
+                  onClick={() => {
+                    if (window.confirm('Remove Fast Money from this pack?')) {
+                      setPack((current) => {
+                        const next = cloneFeudGamePack(current)
+                        delete next.fastMoney
+                        return next
+                      })
+                    }
+                  }}
+                >Remove finale</button>
+              ) : (
+                <button type="button" onClick={() => setPack((current) => ({ ...cloneFeudGamePack(current), fastMoney: makeFastMoney() }))}>
+                  Add Fast Money →
+                </button>
+              )}
+            </header>
+
+            {pack.fastMoney && (
+              <>
+                <div className="builder-fast-money__timers">
+                  <label>
+                    <span>Contestant 1 timer</span>
+                    <input
+                      type="number"
+                      min={10}
+                      max={90}
+                      value={pack.fastMoney.timers.first}
+                      onChange={(event) => setPack((current) => {
+                        const next = cloneFeudGamePack(current)
+                        if (next.fastMoney) next.fastMoney.timers.first = Number(event.target.value)
+                        return next
+                      })}
+                    />
+                    <small>seconds</small>
+                  </label>
+                  <label>
+                    <span>Contestant 2 timer</span>
+                    <input
+                      type="number"
+                      min={10}
+                      max={90}
+                      value={pack.fastMoney.timers.second}
+                      onChange={(event) => setPack((current) => {
+                        const next = cloneFeudGamePack(current)
+                        if (next.fastMoney) next.fastMoney.timers.second = Number(event.target.value)
+                        return next
+                      })}
+                    />
+                    <small>seconds</small>
+                  </label>
+                </div>
+
+                <div className="builder-fast-money__questions">
+                  {pack.fastMoney.questions.map((question, questionIndex) => (
+                    <details className="builder-question" key={question.id} open={questionIndex === 0}>
+                      <summary>
+                        <span>{String(questionIndex + 1).padStart(2, '0')}</span>
+                        <div><small>Fast Money question</small><strong>{question.prompt || 'Untitled question'}</strong></div>
+                        <b>{question.answers.length} answers</b>
+                      </summary>
+                      <div className="builder-question__body">
+                        <label className="builder-prompt">
+                          <span>Read this to both contestants</span>
+                          <textarea
+                            value={question.prompt}
+                            maxLength={180}
+                            rows={2}
+                            onChange={(event) => updateFastMoneyQuestion(questionIndex, (draft) => { draft.prompt = event.target.value })}
+                            placeholder="Name something people do first thing in the morning."
+                          />
+                        </label>
+                        <div className="builder-answer-heading"><span>Survey answers</span><b>Points</b></div>
+                        <div className="builder-answers">
+                          {question.answers.map((answer, answerIndex) => (
+                            <div className="builder-answer" key={answer.id}>
+                              <span>{answerIndex + 1}</span>
+                              <label>
+                                <span className="sr-only">Fast Money answer {answerIndex + 1}</span>
+                                <input
+                                  value={answer.label}
+                                  maxLength={60}
+                                  onChange={(event) => updateFastMoneyQuestion(questionIndex, (draft) => { draft.answers[answerIndex].label = event.target.value })}
+                                  placeholder="Survey answer"
+                                />
+                              </label>
+                              <label>
+                                <span className="sr-only">Fast Money answer {answerIndex + 1} points</span>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={100}
+                                  value={answer.points}
+                                  onChange={(event) => updateFastMoneyQuestion(questionIndex, (draft) => { draft.answers[answerIndex].points = Number(event.target.value) })}
+                                />
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => updateFastMoneyQuestion(questionIndex, (draft) => { draft.answers.splice(answerIndex, 1) })}
+                                disabled={question.answers.length === 1}
+                                aria-label={`Remove Fast Money answer ${answerIndex + 1}`}
+                              >×</button>
+                            </div>
+                          ))}
+                        </div>
+                        <button
+                          className="add-answer-button"
+                          type="button"
+                          disabled={question.answers.length >= MAX_FEUD_ANSWERS}
+                          onClick={() => updateFastMoneyQuestion(questionIndex, (draft) => { draft.answers.push(makeAnswer()) })}
+                        >+ Add survey answer <span>{question.answers.length}/{MAX_FEUD_ANSWERS}</span></button>
+                      </div>
+                    </details>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
 
           <section className={`builder-validation ${issues.length === 0 ? 'is-ready' : ''}`} aria-live="polite">
             <div>

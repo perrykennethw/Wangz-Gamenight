@@ -22,6 +22,7 @@ export interface FeudAnswer {
   id: string;
   label: string;
   points: number;
+  aliases?: string[];
 }
 
 export interface FeudQuestion {
@@ -30,11 +31,20 @@ export interface FeudQuestion {
   answers: FeudAnswer[];
 }
 
+export interface FeudFastMoneyPack {
+  questions: FeudQuestion[];
+  timers: {
+    first: number;
+    second: number;
+  };
+}
+
 export interface FeudGamePack {
   version: 1;
   kind: "feud";
   title: string;
   questions: FeudQuestion[];
+  fastMoney?: FeudFastMoneyPack;
 }
 
 export interface FeudGameConfig {
@@ -157,7 +167,75 @@ export interface SpinSolveView {
   canUndo: boolean;
 }
 
-export type GameView = SpinSolveView;
+export type FastMoneyPhase =
+  | "selecting"
+  | "ready-one"
+  | "active-one"
+  | "review-one"
+  | "ready-two"
+  | "active-two"
+  | "review-two"
+  | "reveal"
+  | "complete";
+
+export type FastMoneyViewerRole =
+  | "host"
+  | "contestant-one"
+  | "contestant-two"
+  | "eligible-team"
+  | "spectator";
+
+export interface FastMoneyContestantView {
+  id: string;
+  name: string;
+  avatarId: AvatarId | null;
+}
+
+export interface FastMoneyTimerView {
+  status: "idle" | "running" | "paused";
+  durationSeconds: number;
+  deadline: number | null;
+  remainingMs: number;
+}
+
+export interface FastMoneyResponseView {
+  text: string | null;
+  answerId: string | null;
+  points: number | null;
+  repeated: boolean;
+}
+
+export interface FastMoneyQuestionView {
+  id: string;
+  prompt: string | null;
+  responses: [FastMoneyResponseView, FastMoneyResponseView];
+  answerOptions: FeudAnswer[] | null;
+  revealed: boolean;
+}
+
+export interface FastMoneyView {
+  kind: "fast-money";
+  phase: FastMoneyPhase;
+  eligibleTeam: TeamId;
+  viewerRole: FastMoneyViewerRole;
+  contestants: [FastMoneyContestantView | null, FastMoneyContestantView | null];
+  voteCounts: Record<string, number>;
+  viewerVotes: string[];
+  currentContestant: 0 | 1 | null;
+  currentQuestionIndex: number | null;
+  questions: FastMoneyQuestionView[];
+  answeredCount: number;
+  timer: FastMoneyTimerView;
+  subtotals: [number | null, number | null];
+  combinedScore: number;
+  goal: 200;
+  revealIndex: number;
+  isIsolated: boolean;
+  outcome: "win" | "short" | null;
+  message: string;
+}
+
+export type GameView = SpinSolveView | FastMoneyView;
 
 export interface RoomSnapshot {
   code: string;
@@ -189,6 +267,30 @@ export type SpinSolveCommand =
   | { type: "bonus-solve"; solution: string }
   | { type: "finish-bonus" }
   | { type: "undo" };
+
+export type FastMoneyCommand =
+  | { type: "start"; team: TeamId }
+  | { type: "vote"; participantIds: [string, string] }
+  | { type: "set-lineup"; contestantIds: [string, string] }
+  | { type: "confirm-lineup" }
+  | { type: "replace-contestant"; contestant: 0 | 1; participantId: string }
+  | { type: "start-attempt" }
+  | { type: "submit"; answer: string }
+  | { type: "pass" }
+  | { type: "end-attempt" }
+  | {
+      type: "score-response";
+      contestant: 0 | 1;
+      questionIndex: number;
+      text: string;
+      answerId: string | null;
+      repeated: boolean;
+    }
+  | { type: "lock-review" }
+  | { type: "pause-timer" }
+  | { type: "resume-timer" }
+  | { type: "add-time" }
+  | { type: "reveal-next" };
 
 export interface ClientToServerEvents {
   "room:create": (
@@ -227,6 +329,10 @@ export interface ClientToServerEvents {
     command: SpinSolveCommand,
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
+  "fast-money:action": (
+    command: FastMoneyCommand,
+    reply: (result: RoomResult<RoomSnapshot>) => void,
+  ) => void;
   "chat:send": (
     details: { text: string; team?: TeamId },
     reply: (result: RoomResult<ChatMessage>) => void,
@@ -263,4 +369,5 @@ export interface ServerToClientEvents {
   "room:snapshot": (snapshot: RoomSnapshot) => void;
   "room:closed": (message: string) => void;
   "chat:typing": (update: ChatTypingUpdate) => void;
+  "fast-money:repeat": () => void;
 }

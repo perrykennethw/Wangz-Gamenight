@@ -29,6 +29,14 @@ import {
   startSharedTimer,
 } from '../src/sharedTimer.js'
 import { applySpinSolveCommand, createSpinSolveGame, viewSpinSolveGame, type SpinSolveState } from './spinSolve.js'
+import {
+  applyFastMoneyCommand,
+  createFastMoneyState,
+  expireFastMoney,
+  viewFastMoney,
+  type FastMoneyActor,
+  type FastMoneyState,
+} from './fastMoney.js'
 
 interface Connection {
   role: 'host' | 'player'
@@ -55,11 +63,13 @@ interface Room {
     decision: PlayPassChoice | null
     controllingTeam: TeamId | null
   }
-  game: SpinSolveState | null
+  game: SpinSolveState | FastMoneyState | null
   buzzer: BuzzerState
   timer: SharedTimerState
   timerGeneration: number
   timerTimeout: ReturnType<typeof setTimeout> | null
+  fastMoneyTimerGeneration: number
+  fastMoneyTimerTimeout: ReturnType<typeof setTimeout> | null
 }
 
 const rooms = new Map<string, Room>()
@@ -288,7 +298,17 @@ function snapshotFor(room: Room, socketId: string): RoomSnapshot {
     viewer: connection.role === 'host'
       ? { role: 'host' }
       : { role: 'player', participantId: participant?.id ?? '', team: participant?.team ?? null },
-    game: room.game ? viewSpinSolveGame(room.game) : null,
+    game: room.game
+      ? room.game.kind === 'spin-solve'
+        ? viewSpinSolveGame(room.game)
+        : room.config.kind === 'feud' && room.config.pack.fastMoney
+          ? viewFastMoney(room.game, room.config.pack.fastMoney, [...room.participants.values()], {
+              role: connection.role,
+              participantId: participant?.id ?? null,
+              team: participant?.team ?? null,
+            })
+          : null
+      : null,
   }
 }
 
@@ -324,6 +344,39 @@ function scheduleSharedTimerExpiration(room: Room): void {
     liveRoom.timer = expired
     syncRoom(liveRoom)
   }, delay)
+}
+
+function cancelFastMoneyExpiration(room: Room): void {
+  room.fastMoneyTimerGeneration += 1
+  if (room.fastMoneyTimerTimeout) clearTimeout(room.fastMoneyTimerTimeout)
+  room.fastMoneyTimerTimeout = null
+}
+
+function scheduleFastMoneyExpiration(room: Room): void {
+  cancelFastMoneyExpiration(room)
+  if (room.game?.kind !== 'fast-money' || room.game.timer.status !== 'running' || room.game.timer.deadline === null) return
+
+  const generation = room.fastMoneyTimerGeneration
+  const roomCode = room.code
+  const expectedDeadline = room.game.timer.deadline
+  room.fastMoneyTimerTimeout = setTimeout(() => {
+    const liveRoom = rooms.get(roomCode)
+    if (
+      !liveRoom
+      || liveRoom.fastMoneyTimerGeneration !== generation
+      || liveRoom.game?.kind !== 'fast-money'
+      || liveRoom.game.timer.deadline !== expectedDeadline
+    ) return
+
+    liveRoom.fastMoneyTimerTimeout = null
+    const expired = expireFastMoney(liveRoom.game, Date.now())
+    if (expired === liveRoom.game) {
+      scheduleFastMoneyExpiration(liveRoom)
+      return
+    }
+    liveRoom.game = expired
+    syncRoom(liveRoom)
+  }, Math.max(0, expectedDeadline - Date.now()) + 25)
 }
 
 function emitTypingUpdate(room: Room, sourceSocketId: string, update: ChatTypingUpdate): void {
@@ -433,6 +486,7 @@ function leaveCurrentRoom(
 
   if (connection?.role === 'host') {
     cancelSharedTimerExpiration(room)
+    cancelFastMoneyExpiration(room)
     for (const timer of room.disconnectTimers.values()) clearTimeout(timer)
     for (const memberSocketId of room.connections.keys()) {
       io.sockets.sockets.get(memberSocketId)?.emit('room:closed', 'The host closed this room.')
@@ -488,6 +542,8 @@ io.on('connection', (socket) => {
       timer: createIdleSharedTimer(),
       timerGeneration: 0,
       timerTimeout: null,
+      fastMoneyTimerGeneration: 0,
+      fastMoneyTimerTimeout: null,
     }
     rooms.set(code, room)
     socketRooms.set(socket.id, code)
@@ -810,7 +866,7 @@ io.on('connection', (socket) => {
     const connection = room?.connections.get(socket.id)
     const participant = connection?.participantId ? room?.participants.get(connection.participantId) : undefined
 
-    if (!room || room.phase !== 'playing' || !room.game || !connection) {
+    if (!room || room.phase !== 'playing' || room.game?.kind !== 'spin-solve' || !connection) {
       return reply({ ok: false, error: 'Start a spin-and-solve game before making a move.' })
     }
 
@@ -828,7 +884,7 @@ io.on('connection', (socket) => {
       const roomCode = room.code
       setTimeout(() => {
         const liveRoom = rooms.get(roomCode)
-        if (!liveRoom?.game || liveRoom.game.phase !== 'bonus-solving' || liveRoom.game.bonusDeadline !== expectedDeadline) return
+        if (!liveRoom?.game || liveRoom.game.kind !== 'spin-solve' || liveRoom.game.phase !== 'bonus-solving' || liveRoom.game.bonusDeadline !== expectedDeadline) return
         const finished = applySpinSolveCommand(
           liveRoom.game,
           { role: 'host', team: null },
@@ -841,6 +897,72 @@ io.on('connection', (socket) => {
         }
       }, Math.max(0, expectedDeadline - Date.now()) + 50)
     }
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('fast-money:action', (command, reply) => {
+    const room = roomFor(socket.id)
+    const connection = room?.connections.get(socket.id)
+    const participant = connection?.participantId ? room?.participants.get(connection.participantId) : undefined
+    if (!room || room.phase !== 'playing' || room.config.kind !== 'feud' || !connection) {
+      return reply({ ok: false, error: 'Start a Family Feud game before opening Fast Money.' })
+    }
+    const pack = room.config.pack.fastMoney
+    if (!pack) return reply({ ok: false, error: 'This game pack does not include five Fast Money questions.' })
+
+    const actor: FastMoneyActor = {
+      role: connection.role,
+      participantId: participant?.id ?? null,
+      team: participant?.team ?? null,
+    }
+
+    if (command.type === 'start') {
+      if (connection.role !== 'host') return reply({ ok: false, error: 'Only the host can start Fast Money.' })
+      if (!isTeamId(command.team)) return reply({ ok: false, error: 'Choose the team that won the main game.' })
+      if (room.game) return reply({ ok: false, error: 'Fast Money has already started.' })
+      if (playersForTeam(room, command.team).length < 2) {
+        return reply({ ok: false, error: 'The winning team needs two connected players for Fast Money.' })
+      }
+      endFeudQuestion(room)
+      clearTeamTyping(room, command.team)
+      room.chatLockedTeam = command.team
+      room.buzzer = { ...room.buzzer, status: 'idle', winner: null }
+      room.game = createFastMoneyState(command.team)
+    } else {
+      if (room.game?.kind !== 'fast-money') return reply({ ok: false, error: 'Start Fast Money before using its controls.' })
+      if (command.type === 'start-attempt') {
+        const contestant = room.game.phase === 'ready-one' ? 0 : room.game.phase === 'ready-two' ? 1 : null
+        const participantId = contestant === null ? null : room.game.lineup[contestant]
+        const connected = participantId && [...room.connections.values()].some(
+          (candidate) => candidate.participantId === participantId,
+        )
+        if (!connected) return reply({ ok: false, error: 'That contestant is disconnected. Wait for them or choose a replacement.' })
+      }
+      const expired = expireFastMoney(room.game, Date.now())
+      if (expired !== room.game) room.game = expired
+      const result = applyFastMoneyCommand(
+        room.game,
+        pack,
+        [...room.participants.values()],
+        actor,
+        command,
+        Date.now(),
+      )
+      if (!result.ok) {
+        if (/repeat answer/i.test(result.error)) {
+          io.sockets.sockets.get(room.hostSocketId)?.emit('fast-money:repeat')
+        }
+        scheduleFastMoneyExpiration(room)
+        syncRoom(room)
+        return reply(result)
+      }
+      room.game = result.state
+      if (room.game.phase === 'complete') room.chatLockedTeam = null
+    }
+
+    scheduleFastMoneyExpiration(room)
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
     syncRoom(room)

@@ -19,6 +19,7 @@ export interface SpinSolveDependencies {
 }
 
 interface SpinSolveCoreState {
+  kind: 'spin-solve'
   phase: SpinSolvePhase
   round: number
   totalRounds: number
@@ -108,7 +109,7 @@ function maskPuzzle(state: SpinSolveCoreState): string {
 export function createSpinSolveGame(config: SpinSolveGameConfig, dependencies: SpinSolveDependencies): SpinSolveState {
   const puzzle = pickPuzzle(regularPuzzles, dependencies.random)
   return {
-    phase: 'regular', round: 1, totalRounds: config.rounds, puzzle,
+    kind: 'spin-solve', phase: 'regular', round: 1, totalRounds: config.rounds, puzzle,
     revealedLetters: [], usedLetters: [], activeTeam: 'one',
     roundBanks: { one: 0, two: 0 }, totals: { one: 0, two: 0 },
     wheelIndex: null, spinId: 0, pendingWedge: null,

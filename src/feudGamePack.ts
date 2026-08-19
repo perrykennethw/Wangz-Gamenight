@@ -1,8 +1,10 @@
-import type { FeudAnswer, FeudGamePack, FeudQuestion } from './roomTypes.js'
+import type { FeudAnswer, FeudFastMoneyPack, FeudGamePack, FeudQuestion } from './roomTypes.js'
 
 export const MAX_GAME_PACK_BYTES = 256 * 1024
 export const MAX_FEUD_QUESTIONS = 30
 export const MAX_FEUD_ANSWERS = 8
+export const FAST_MONEY_QUESTION_COUNT = 5
+export const DEFAULT_FAST_MONEY_TIMERS = { first: 20, second: 25 } as const
 
 export class GamePackError extends Error {
   readonly issues: string[]
@@ -28,6 +30,8 @@ const makeId = (prefix: string, index: number, value: string) => {
 function adaptImportedFeudGamePack(value: unknown): unknown {
   if (!isRecord(value) || Array.isArray(value.questions) || !Array.isArray(value.rounds)) return value
 
+  const rawFinalRound = Array.isArray(value.final_round) ? value.final_round : []
+  const rawTimers = Array.isArray(value.final_round_timers) ? value.final_round_timers : []
   return {
     version: 1,
     kind: 'feud',
@@ -48,7 +52,90 @@ function adaptImportedFeudGamePack(value: unknown): unknown {
         }),
       }
     }),
+    ...(rawFinalRound.length > 0 ? {
+      fastMoney: {
+        questions: rawFinalRound.map((rawQuestion) => {
+          const question = isRecord(rawQuestion) ? rawQuestion : {}
+          const rawAnswers = Array.isArray(question.answers) ? question.answers : []
+          return {
+            id: question.id,
+            prompt: question.question,
+            answers: rawAnswers.map((rawAnswer) => {
+              if (Array.isArray(rawAnswer)) {
+                return { label: rawAnswer[0], points: rawAnswer[1] }
+              }
+              const answer = isRecord(rawAnswer) ? rawAnswer : {}
+              return {
+                id: answer.id,
+                label: typeof answer.ans === 'string' ? answer.ans : answer.label,
+                points: typeof answer.pnt === 'number' ? answer.pnt : answer.points,
+                aliases: answer.aliases,
+              }
+            }),
+          }
+        }),
+        timers: {
+          first: rawTimers[0] ?? DEFAULT_FAST_MONEY_TIMERS.first,
+          second: rawTimers[1] ?? DEFAULT_FAST_MONEY_TIMERS.second,
+        },
+      },
+    } : {}),
   }
+}
+
+function normalizeQuestions(
+  value: unknown,
+  issues: string[],
+  section: 'Question' | 'Fast Money question',
+  maximum: number,
+): FeudQuestion[] {
+  const rawQuestions = Array.isArray(value) ? value : []
+  const questions: FeudQuestion[] = rawQuestions.slice(0, maximum).map((rawQuestion, questionIndex) => {
+    const question = isRecord(rawQuestion) ? rawQuestion : {}
+    const prompt = cleanText(question.prompt)
+    if (!prompt) issues.push(`${section} ${questionIndex + 1} needs a prompt.`)
+    if (prompt.length > 180) issues.push(`${section} ${questionIndex + 1} must be 180 characters or fewer.`)
+
+    const rawAnswers = Array.isArray(question.answers) ? question.answers : []
+    if (rawAnswers.length === 0) issues.push(`${section} ${questionIndex + 1} needs at least one answer.`)
+    if (rawAnswers.length > MAX_FEUD_ANSWERS) issues.push(`${section} ${questionIndex + 1} can have at most ${MAX_FEUD_ANSWERS} answers.`)
+
+    const normalizedAliases = new Set<string>()
+    const answers: FeudAnswer[] = rawAnswers.slice(0, MAX_FEUD_ANSWERS).map((rawAnswer, answerIndex) => {
+      const answer = isRecord(rawAnswer) ? rawAnswer : {}
+      const label = cleanText(answer.label)
+      const points = typeof answer.points === 'number' ? answer.points : Number.NaN
+      if (!label) issues.push(`${section} ${questionIndex + 1}, answer ${answerIndex + 1} needs text.`)
+      if (label.length > 60) issues.push(`${section} ${questionIndex + 1}, answer ${answerIndex + 1} must be 60 characters or fewer.`)
+      if (!Number.isInteger(points) || points < 1 || points > 100) {
+        issues.push(`${section} ${questionIndex + 1}, answer ${answerIndex + 1} needs a whole-number score from 1 to 100.`)
+      }
+      const aliases = Array.isArray(answer.aliases)
+        ? answer.aliases.map(cleanText).filter(Boolean).slice(0, 12)
+        : []
+      for (const candidate of [label, ...aliases]) {
+        const normalized = candidate.normalize('NFKC').toLocaleLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').trim()
+        if (normalized && normalizedAliases.has(normalized)) {
+          issues.push(`${section} ${questionIndex + 1} uses the answer or alias “${candidate}” more than once.`)
+        }
+        if (normalized) normalizedAliases.add(normalized)
+      }
+      return {
+        id: cleanText(answer.id) || makeId('answer', answerIndex, label),
+        label,
+        points: Number.isInteger(points) ? points : 0,
+        ...(aliases.length > 0 ? { aliases } : {}),
+      }
+    })
+
+    return {
+      id: cleanText(question.id) || makeId(section === 'Question' ? 'question' : 'fast-money', questionIndex, prompt),
+      prompt,
+      answers,
+    }
+  })
+
+  return questions
 }
 
 export function normalizeFeudGamePack(value: unknown): FeudGamePack {
@@ -66,41 +153,31 @@ export function normalizeFeudGamePack(value: unknown): FeudGamePack {
   if (rawQuestions.length === 0) issues.push('Add at least one question.')
   if (rawQuestions.length > MAX_FEUD_QUESTIONS) issues.push(`Use no more than ${MAX_FEUD_QUESTIONS} questions.`)
 
-  const questions: FeudQuestion[] = rawQuestions.slice(0, MAX_FEUD_QUESTIONS).map((rawQuestion, questionIndex) => {
-    const question = isRecord(rawQuestion) ? rawQuestion : {}
-    const prompt = cleanText(question.prompt)
-    if (!prompt) issues.push(`Question ${questionIndex + 1} needs a prompt.`)
-    if (prompt.length > 180) issues.push(`Question ${questionIndex + 1} must be 180 characters or fewer.`)
+  const questions = normalizeQuestions(rawQuestions, issues, 'Question', MAX_FEUD_QUESTIONS)
 
-    const rawAnswers = Array.isArray(question.answers) ? question.answers : []
-    if (rawAnswers.length === 0) issues.push(`Question ${questionIndex + 1} needs at least one answer.`)
-    if (rawAnswers.length > MAX_FEUD_ANSWERS) issues.push(`Question ${questionIndex + 1} can have at most ${MAX_FEUD_ANSWERS} answers.`)
-
-    const answers: FeudAnswer[] = rawAnswers.slice(0, MAX_FEUD_ANSWERS).map((rawAnswer, answerIndex) => {
-      const answer = isRecord(rawAnswer) ? rawAnswer : {}
-      const label = cleanText(answer.label)
-      const points = typeof answer.points === 'number' ? answer.points : Number.NaN
-      if (!label) issues.push(`Question ${questionIndex + 1}, answer ${answerIndex + 1} needs text.`)
-      if (label.length > 60) issues.push(`Question ${questionIndex + 1}, answer ${answerIndex + 1} must be 60 characters or fewer.`)
-      if (!Number.isInteger(points) || points < 1 || points > 100) {
-        issues.push(`Question ${questionIndex + 1}, answer ${answerIndex + 1} needs a whole-number score from 1 to 100.`)
+  let fastMoney: FeudFastMoneyPack | undefined
+  if (value.fastMoney !== undefined) {
+    if (!isRecord(value.fastMoney)) {
+      issues.push('Fast Money must be a game-pack object.')
+    } else {
+      const rawFastMoneyQuestions = Array.isArray(value.fastMoney.questions) ? value.fastMoney.questions : []
+      if (rawFastMoneyQuestions.length !== FAST_MONEY_QUESTION_COUNT) {
+        issues.push(`Fast Money needs exactly ${FAST_MONEY_QUESTION_COUNT} questions.`)
       }
-      return {
-        id: cleanText(answer.id) || makeId('answer', answerIndex, label),
-        label,
-        points: Number.isInteger(points) ? points : 0,
+      const timerValue = isRecord(value.fastMoney.timers) ? value.fastMoney.timers : {}
+      const first = typeof timerValue.first === 'number' ? timerValue.first : DEFAULT_FAST_MONEY_TIMERS.first
+      const second = typeof timerValue.second === 'number' ? timerValue.second : DEFAULT_FAST_MONEY_TIMERS.second
+      if (!Number.isInteger(first) || first < 10 || first > 90) issues.push('Fast Money’s first timer must be 10 to 90 seconds.')
+      if (!Number.isInteger(second) || second < 10 || second > 90) issues.push('Fast Money’s second timer must be 10 to 90 seconds.')
+      fastMoney = {
+        questions: normalizeQuestions(rawFastMoneyQuestions, issues, 'Fast Money question', FAST_MONEY_QUESTION_COUNT),
+        timers: { first, second },
       }
-    })
-
-    return {
-      id: cleanText(question.id) || makeId('question', questionIndex, prompt),
-      prompt,
-      answers,
     }
-  })
+  }
 
   if (issues.length > 0) throw new GamePackError(issues)
-  return { version: 1, kind: 'feud', title, questions }
+  return { version: 1, kind: 'feud', title, questions, ...(fastMoney ? { fastMoney } : {}) }
 }
 
 export function parseFeudGamePack(text: string): FeudGamePack {
@@ -121,8 +198,23 @@ export function cloneFeudGamePack(pack: FeudGamePack): FeudGamePack {
     ...pack,
     questions: pack.questions.map((question) => ({
       ...question,
-      answers: question.answers.map((answer) => ({ ...answer })),
+      answers: question.answers.map((answer) => ({
+        ...answer,
+        ...(answer.aliases ? { aliases: [...answer.aliases] } : {}),
+      })),
     })),
+    ...(pack.fastMoney ? {
+      fastMoney: {
+        timers: { ...pack.fastMoney.timers },
+        questions: pack.fastMoney.questions.map((question) => ({
+          ...question,
+          answers: question.answers.map((answer) => ({
+            ...answer,
+            ...(answer.aliases ? { aliases: [...answer.aliases] } : {}),
+          })),
+        })),
+      },
+    } : {}),
   }
 }
 

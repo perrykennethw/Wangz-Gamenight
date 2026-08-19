@@ -17,6 +17,8 @@ Run `npm run typecheck` to verify the TypeScript source independently of the pro
 
 Run `npm run test:game-packs` to verify Family Feud game-pack parsing and validation.
 
+Run `npm run test:fast-money` for the finale state machine. With the room server running, `npm run test:fast-money-integration` verifies socket authorization, reconnects, and hidden-answer redaction.
+
 `npm run dev` starts both the Vite app and the realtime room server. Friends on the same Wi-Fi network can open the Network URL printed by Vite, select **Join a room**, and enter the five-character code shown on the host screen.
 
 ## Multiplayer rooms
@@ -56,7 +58,7 @@ The moderator can start a synchronized 5-, 25-, 30-, or 40-second timer from the
 
 Before opening a room, the host can use **Build or edit** to author a question pack or upload a previously exported `.json` pack. Builder drafts save in that browser automatically; **Download JSON** creates a portable copy. The server validates and snapshots the selected pack when the room opens, so later draft edits do not change a game in progress.
 
-The importer also accepts the alternate host format built around `rounds[].question` and `answers[].ans` / `pnt`. Those regular rounds are converted to the Wangz game-pack format and can be edited or exported normally after import. `settings`, `multiply`, `final_round`, and `final_round_timers` have no equivalent in the current game and are ignored.
+The importer also accepts the alternate host format built around `rounds[].question` and `answers[].ans` / `pnt`. Those regular rounds are converted to the Wangz game-pack format and can be edited or exported normally after import. Five-question `final_round` data and its two `final_round_timers` are imported into Fast Money; `settings` and per-round `multiply` remain ignored.
 
 - Click an answer or press `1`–`8` to reveal it.
 - Click **Add strike** or press `X` to mark a strike.
@@ -64,6 +66,14 @@ The importer also accepts the alternate host format built around `rounds[].quest
 - Award the round pot to either team; `A` awards team one and `B` awards team two.
 - Use the small `−` and `+` controls to correct a team score in five-point increments.
 - Rounds one and two score normally, round three scores double, and later rounds score triple.
+
+## Fast Money finale
+
+- The winning team votes for two contestants; the host confirms the pair and their 20-/25-second order.
+- Each active contestant can answer from their phone, while the host has matching transcription, timer, and score-review controls.
+- Contestant two receives an isolated server-redacted view until their attempt begins. First-contestant responses and the answer catalog are never sent in that snapshot.
+- Exact normalized labels and pack-authored aliases trigger the repeat cue. The host can correct transcription, survey matches, and repeat rulings before locking each attempt.
+- The final board reveals both columns one row at a time and builds the combined score toward 200.
 
 ## Spin & Solve
 

@@ -3,6 +3,7 @@ import type {
   BuzzerStatus,
   FeudAnswer,
   FeudGameConfig,
+  FastMoneyView,
   RoomSnapshot,
   SharedTimerState,
   SpinSolveGameConfig,
@@ -54,9 +55,15 @@ export interface SpinPresentation extends PresentationBase {
   game: SpinSolveView;
 }
 
+export interface FastMoneyPresentation extends PresentationBase {
+  mode: "fast-money";
+  game: FastMoneyView;
+}
+
 export type PresentationState =
   | LobbyPresentation
   | FeudPresentation
+  | FastMoneyPresentation
   | SpinPresentation;
 
 interface FeudBoardInput {
@@ -177,6 +184,48 @@ export function createSpinPresentation(
     timer: { ...room.timer },
     config: { ...room.config },
     game: { ...room.game },
+  };
+}
+
+export function createFastMoneyPresentation(
+  room: RoomSnapshot,
+): FastMoneyPresentation | null {
+  if (room.config.kind !== "feud" || room.game?.kind !== "fast-money") return null;
+  const questions = room.game.questions.map((question) => ({
+    ...question,
+    prompt: question.revealed ? question.prompt : null,
+    answerOptions: null,
+    responses: question.revealed
+      ? question.responses.map((response) => ({ ...response, answerId: null })) as typeof question.responses
+      : ([
+          { text: null, answerId: null, points: null, repeated: false },
+          { text: null, answerId: null, points: null, repeated: false },
+        ] as typeof question.responses),
+  }));
+  const combinedScore = questions.reduce((total, question) => total
+    + (question.responses[0].points ?? 0)
+    + (question.responses[1].points ?? 0), 0);
+  const game: FastMoneyView = {
+    ...room.game,
+    contestants: room.game.contestants.map((contestant) => contestant
+      ? { ...contestant, id: "" }
+      : null) as FastMoneyView["contestants"],
+    viewerRole: "spectator",
+    viewerVotes: [],
+    voteCounts: {},
+    currentQuestionIndex: null,
+    questions,
+    combinedScore,
+    subtotals: room.game.phase === "complete" ? [...room.game.subtotals] : [null, null],
+    isIsolated: false,
+  };
+  return {
+    mode: "fast-money",
+    code: room.code,
+    teamOne: room.config.teamOne,
+    teamTwo: room.config.teamTwo,
+    timer: { ...room.timer },
+    game,
   };
 }
 
