@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { Server, type Socket } from 'socket.io'
+import { normalizeAvatarId } from '../src/avatarId.js'
 import {
   HOST_AVATAR_ID,
   type AvatarId,
@@ -148,16 +149,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isTeamId(value: unknown): value is TeamId {
   return value === 'one' || value === 'two'
-}
-
-function normalizeAvatarId(value: unknown): AvatarId | null {
-  if (value === null || value === undefined || value === '') return null
-  if (typeof value !== 'string') throw new Error('Choose a valid avatar.')
-  const avatarId = value.trim()
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,127}$/.test(avatarId) || avatarId.includes('..')) {
-    throw new Error('Choose a valid avatar.')
-  }
-  return avatarId
 }
 
 function normalizePlayerAvatarId(value: unknown): AvatarId | null {

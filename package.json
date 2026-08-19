@@ -13,6 +13,7 @@
     "build": "vite build && tsc -p tsconfig.server.json",
     "typecheck": "tsc --noEmit",
     "test:game-packs": "tsx server/feudGamePack.test.ts",
+    "test:avatars": "tsx server/avatarId.test.ts",
     "test:audio": "tsx server/gameAudio.test.ts",
     "test:timers": "tsx server/sharedTimer.test.ts",
     "test:spin-solve": "tsx server/spinSolve.test.ts",
