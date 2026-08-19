@@ -20,6 +20,7 @@ interface PresentationBase {
 export interface LobbyPresentation extends PresentationBase {
   mode: "lobby";
   game: "Family Feud" | "Spin & Solve";
+  teamRevealRevision: number;
   participants: Array<{ name: string; avatarId: string | null; team: TeamId | null }>;
 }
 
@@ -100,7 +101,10 @@ function isPresentationMessage(
   );
 }
 
-export function createLobbyPresentation(room: RoomSnapshot): LobbyPresentation {
+export function createLobbyPresentation(
+  room: RoomSnapshot,
+  teamRevealRevision = 0,
+): LobbyPresentation {
   return {
     mode: "lobby",
     code: room.code,
@@ -108,6 +112,7 @@ export function createLobbyPresentation(room: RoomSnapshot): LobbyPresentation {
     teamOne: room.config.teamOne,
     teamTwo: room.config.teamTwo,
     timer: { ...room.timer },
+    teamRevealRevision,
     participants: room.participants.map(({ name, avatarId, team }) => ({ name, avatarId, team })),
   };
 }

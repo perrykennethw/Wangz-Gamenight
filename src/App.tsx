@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, FormEvent } from "react";
+import type { CSSProperties, DragEvent, FormEvent } from "react";
 import {
   avatarFor,
   avatarOptions,
@@ -973,6 +973,173 @@ function TeamRoster({
   );
 }
 
+interface HostRosterPlayerProps {
+  participant: Participant;
+  room: RoomSnapshot;
+  moving: boolean;
+  onMove: (participantId: string, team: TeamId) => Promise<void>;
+  onDragStart: (participantId: string) => void;
+  onDragEnd: () => void;
+}
+
+function HostRosterPlayer({
+  participant,
+  room,
+  moving,
+  onMove,
+  onDragStart,
+  onDragEnd,
+}: HostRosterPlayerProps) {
+  const destinations: TeamId[] = participant.team
+    ? [participant.team === "one" ? "two" : "one"]
+    : ["one", "two"];
+
+  const startDragging = (event: DragEvent<HTMLDivElement>) => {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", participant.id);
+    onDragStart(participant.id);
+  };
+
+  return (
+    <div
+      className={`host-roster-player ${moving ? "is-moving" : ""}`}
+      draggable={!moving}
+      onDragStart={startDragging}
+      onDragEnd={onDragEnd}
+    >
+      <PlayerIdentity participant={participant} compact />
+      <div className="host-roster-player__actions">
+        {destinations.map((destination) => (
+          <button
+            key={destination}
+            type="button"
+            draggable={false}
+            disabled={moving}
+            aria-label={`Move ${participant.name} to ${teamName(room, destination)}`}
+            onClick={() => void onMove(participant.id, destination)}
+          >
+            {moving ? "Moving…" : `Move to ${teamName(room, destination)} →`}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+interface HostTeamRosterProps {
+  room: RoomSnapshot;
+  team: TeamId;
+  movingPlayerId: string | null;
+  draggingPlayerId: string | null;
+  onMove: (participantId: string, team: TeamId) => Promise<void>;
+  onDragStart: (participantId: string) => void;
+  onDragEnd: () => void;
+}
+
+function HostTeamRoster({
+  room,
+  team,
+  movingPlayerId,
+  draggingPlayerId,
+  onMove,
+  onDragStart,
+  onDragEnd,
+}: HostTeamRosterProps) {
+  const players = room.participants.filter(
+    (participant) => participant.team === team,
+  );
+  const draggingPlayer = room.participants.find(
+    (participant) => participant.id === draggingPlayerId,
+  );
+  const isDropTarget = Boolean(
+    draggingPlayer && draggingPlayer.team !== team && !movingPlayerId,
+  );
+
+  const allowDrop = (event: DragEvent<HTMLElement>) => {
+    if (movingPlayerId) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+  };
+
+  const dropPlayer = (event: DragEvent<HTMLElement>) => {
+    event.preventDefault();
+    const participantId =
+      draggingPlayerId || event.dataTransfer.getData("text/plain");
+    const participant = room.participants.find(
+      (candidate) => candidate.id === participantId,
+    );
+    if (!participant || participant.team === team || movingPlayerId) return;
+    void onMove(participantId, team);
+  };
+
+  return (
+    <section
+      className={`team-roster team-roster--${team} host-team-roster ${isDropTarget ? "is-drop-target" : ""}`}
+      aria-label={`${teamName(room, team)} roster${isDropTarget ? ". Drop player here" : ""}`}
+      onDragOver={allowDrop}
+      onDrop={dropPlayer}
+    >
+      <div className="team-roster__heading">
+        <span>{team === "one" ? "Team one" : "Team two"}</span>
+        <b>{players.length}</b>
+      </div>
+      <h2>{teamName(room, team)}</h2>
+      <div className="host-roster-players">
+        {players.length === 0 ? (
+          <span className="empty-player">Drop or move a player here</span>
+        ) : (
+          players.map((player) => (
+            <HostRosterPlayer
+              key={player.id}
+              participant={player}
+              room={room}
+              moving={movingPlayerId === player.id}
+              onMove={onMove}
+              onDragStart={onDragStart}
+              onDragEnd={onDragEnd}
+            />
+          ))
+        )}
+      </div>
+      {isDropTarget && <strong className="host-team-roster__drop-cue">Drop to move</strong>}
+    </section>
+  );
+}
+
+function HostUnassignedPlayers({
+  room,
+  movingPlayerId,
+  onMove,
+  onDragStart,
+  onDragEnd,
+}: Omit<HostTeamRosterProps, "team" | "draggingPlayerId">) {
+  const players = room.participants.filter((participant) => !participant.team);
+  if (players.length === 0) return null;
+
+  return (
+    <section className="host-unassigned" aria-label="Players waiting to choose a team">
+      <div>
+        <strong>Waiting to choose</strong>
+        <span>{players.length} unassigned</span>
+      </div>
+      <p>Assign them now, or let them pick a side from their phone.</p>
+      <div className="host-unassigned__players">
+        {players.map((player) => (
+          <HostRosterPlayer
+            key={player.id}
+            participant={player}
+            room={room}
+            moving={movingPlayerId === player.id}
+            onMove={onMove}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
 interface TeamChatProps {
   team: TeamId;
   teamLabel: string;
@@ -1410,6 +1577,10 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
   const [error, setError] = useState("");
   const [isStarting, setIsStarting] = useState(false);
   const [isRandomizing, setIsRandomizing] = useState(false);
+  const [movingPlayerId, setMovingPlayerId] = useState<string | null>(null);
+  const [draggingPlayerId, setDraggingPlayerId] = useState<string | null>(null);
+  const [teamUpdateMessage, setTeamUpdateMessage] = useState("");
+  const [teamRevealRevision, setTeamRevealRevision] = useState(0);
   const teamOneReady = room.participants.some(
     (player) => player.team === "one",
   );
@@ -1417,7 +1588,10 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
     (player) => player.team === "two",
   );
   const canStart = teamOneReady && teamTwoReady;
-  const presentation = useMemo(() => createLobbyPresentation(room), [room]);
+  const presentation = useMemo(
+    () => createLobbyPresentation(room, teamRevealRevision),
+    [room, teamRevealRevision],
+  );
   usePresentationPublisher(presentation);
 
   const copyCode = async () => {
@@ -1442,9 +1616,14 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
 
   const randomizeTeams = async () => {
     setError("");
+    setTeamUpdateMessage("");
     setIsRandomizing(true);
     try {
       await roomClient.randomizeTeams();
+      setTeamRevealRevision((revision) => revision + 1);
+      setTeamUpdateMessage(
+        "Teams randomized. The new lineup is visible on the presenter display.",
+      );
     } catch (cause) {
       setError(
         cause instanceof Error
@@ -1453,6 +1632,33 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
       );
     } finally {
       setIsRandomizing(false);
+    }
+  };
+
+  const movePlayer = async (participantId: string, team: TeamId) => {
+    const participant = room.participants.find(
+      (candidate) => candidate.id === participantId,
+    );
+    if (!participant || participant.team === team) {
+      setDraggingPlayerId(null);
+      return;
+    }
+
+    setError("");
+    setTeamUpdateMessage("");
+    setMovingPlayerId(participantId);
+    setDraggingPlayerId(null);
+    try {
+      await roomClient.assignTeam(participantId, team);
+      setTeamUpdateMessage(
+        `${participant.name} moved to ${teamName(room, team)}.`,
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not move that player.",
+      );
+    } finally {
+      setMovingPlayerId(null);
     }
   };
 
@@ -1496,17 +1702,52 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
         <GameAudioControls />
         <SharedTimerHostPanel timer={room.timer} />
         <div className="lobby-team-tools">
-          <span>Players can pick a side, or let the host deal the teams.</span>
+          <span>
+            Drag a player between rosters, use their move button, or deal
+            everyone again.
+          </span>
           <button
             onClick={randomizeTeams}
-            disabled={room.participants.length < 2 || isRandomizing}
+            disabled={
+              room.participants.length < 2 ||
+              isRandomizing ||
+              movingPlayerId !== null
+            }
           >
             {isRandomizing ? "Dealing teams…" : "Randomize teams"}
           </button>
         </div>
+        {teamUpdateMessage && (
+          <p className="team-update-message" role="status" aria-live="polite">
+            {teamUpdateMessage}
+          </p>
+        )}
+        <HostUnassignedPlayers
+          room={room}
+          movingPlayerId={movingPlayerId}
+          onMove={movePlayer}
+          onDragStart={setDraggingPlayerId}
+          onDragEnd={() => setDraggingPlayerId(null)}
+        />
         <div className="roster-grid">
-          <TeamRoster room={room} team="one" />
-          <TeamRoster room={room} team="two" />
+          <HostTeamRoster
+            room={room}
+            team="one"
+            movingPlayerId={movingPlayerId}
+            draggingPlayerId={draggingPlayerId}
+            onMove={movePlayer}
+            onDragStart={setDraggingPlayerId}
+            onDragEnd={() => setDraggingPlayerId(null)}
+          />
+          <HostTeamRoster
+            room={room}
+            team="two"
+            movingPlayerId={movingPlayerId}
+            draggingPlayerId={draggingPlayerId}
+            onMove={movePlayer}
+            onDragStart={setDraggingPlayerId}
+            onDragEnd={() => setDraggingPlayerId(null)}
+          />
         </div>
         <HostHuddles room={room} />
         <div className="host-lobby-footer">
@@ -3047,10 +3288,18 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
 }
 
 function PresenterLobby({ state }: { state: LobbyPresentation }) {
+  const [showTeamReveal, setShowTeamReveal] = useState(false);
   const teams: Record<TeamId, LobbyPresentation["participants"]> = { one: [], two: [] };
   for (const participant of state.participants) {
     if (participant.team) teams[participant.team].push(participant);
   }
+
+  useEffect(() => {
+    if (state.teamRevealRevision === 0) return;
+    setShowTeamReveal(true);
+    const timeout = window.setTimeout(() => setShowTeamReveal(false), 3600);
+    return () => window.clearTimeout(timeout);
+  }, [state.teamRevealRevision]);
 
   return (
     <main className="presenter-lobby">
@@ -3061,6 +3310,17 @@ function PresenterLobby({ state }: { state: LobbyPresentation }) {
         </span>
         <b>Room {state.code}</b>
       </header>
+      {showTeamReveal && (
+        <aside
+          className="presenter-team-reveal"
+          key={state.teamRevealRevision}
+          role="status"
+          aria-live="polite"
+        >
+          <span>Teams randomized</span>
+          <strong>Here’s tonight’s lineup</strong>
+        </aside>
+      )}
       <section className="presenter-lobby__hero">
         <p className="eyebrow">Players, grab a phone and join</p>
         <h1>

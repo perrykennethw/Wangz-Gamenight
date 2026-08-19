@@ -77,6 +77,10 @@ try {
   await chooseTeam(casey, 'one')
   await chooseTeam(blake, 'two')
 
+  const caseyParticipantId = caseyJoined.viewer.role === 'player' ? caseyJoined.viewer.participantId : ''
+  await assert.rejects(() => assignTeam(avery, caseyParticipantId, 'two'), /only the host/i)
+  await assert.rejects(() => randomizeTeams(casey), /only the host/i)
+
   await assert.rejects(() => startTimer(avery, 5), /only the host/i)
   await assert.rejects(() => stopTimer(avery), /only the host/i)
   const twentyFiveSecondTimer = await startTimer(host, 25)
@@ -145,13 +149,15 @@ try {
   assert.equal(views.get(avery)?.messages[0]?.senderAvatarId, 'contestants/disco-ball.webp')
   assert.equal(views.get(avery)?.messages[1]?.senderAvatarId, null)
 
-  await assignTeam(host, caseyJoined.viewer.role === 'player' ? caseyJoined.viewer.participantId : '', 'two')
+  await assignTeam(host, caseyParticipantId, 'two')
   await settle()
   const movedCasey = views.get(casey)
   assert.equal(movedCasey?.viewer.role === 'player' ? movedCasey.viewer.team : null, 'two')
   assert.deepEqual(views.get(casey)?.messages.map((message) => message.text), ['Rockets only'])
 
-  await randomizeTeams(host)
+  const randomized = await randomizeTeams(host)
+  assert.equal(randomized.participants.filter((participant) => participant.team === 'one').length, 2)
+  assert.equal(randomized.participants.filter((participant) => participant.team === 'two').length, 1)
   await settle()
   for (const socket of [avery, casey, blake]) {
     const snapshot = views.get(socket)
@@ -161,19 +167,39 @@ try {
     assert.equal(snapshot.teamChats[snapshot.viewer.team === 'one' ? 'two' : 'one'], undefined)
   }
 
+  const drew = await connect()
+  sockets.push(drew)
+  views.set(drew, await joinRoom(drew, created.code, 'Drew'))
+  drew.on('room:snapshot', (snapshot) => views.set(drew, snapshot))
+  typingUpdates.set(drew, [])
+  drew.on('chat:typing', (update) => typingUpdates.get(drew)?.push(update))
+  const drewBeforeChoosing = views.get(drew)
+  assert.equal(drewBeforeChoosing?.viewer.role === 'player' ? drewBeforeChoosing.viewer.team : undefined, null)
+  await chooseTeam(drew, 'two')
+  await settle()
+  const drewAfterChoosing = views.get(drew)
+  assert.equal(drewAfterChoosing?.viewer.role === 'player' ? drewAfterChoosing.viewer.team : null, 'two')
+  assert.deepEqual(views.get(drew)?.messages.map((message) => message.text), ['Rockets only'])
+  await assert.rejects(() => chooseTeam(drew, 'one'), /team is locked/i)
+
   await assignTeam(host, averyJoined.viewer.role === 'player' ? averyJoined.viewer.participantId : '', 'one')
-  await assignTeam(host, caseyJoined.viewer.role === 'player' ? caseyJoined.viewer.participantId : '', 'one')
+  await assignTeam(host, caseyParticipantId, 'one')
   await assignTeam(host, blakeJoined.viewer.role === 'player' ? blakeJoined.viewer.participantId : '', 'two')
   const started = await startGame(host)
   await settle()
   assert.equal('pack' in started.config, true)
-  for (const socket of [avery, casey, blake]) {
+  for (const team of ['one', 'two'] as TeamId[]) {
+    const representativeId = started.buzzer.representatives[team]
+    assert.ok(started.participants.some((participant) => participant.id === representativeId && participant.team === team))
+  }
+  for (const socket of [avery, casey, blake, drew]) {
     const playerView = views.get(socket)
     if (!playerView) throw new Error('Player did not receive the started game snapshot.')
     assert.equal('pack' in playerView.config, false)
     assert.equal(JSON.stringify(playerView).includes(config.kind === 'feud' ? config.pack.questions[0].prompt : ''), false)
   }
   await assert.rejects(() => assignTeam(host, blakeJoined.viewer.role === 'player' ? blakeJoined.viewer.participantId : '', 'one'), /locked after the game starts/i)
+  await assert.rejects(() => randomizeTeams(host), /locked after the game starts/i)
 
   await armBuzzer(host)
   const activeId = started.buzzer.representatives.one
@@ -219,7 +245,7 @@ try {
   assert.deepEqual(resumed.timer, reconnectTimer.timer)
   await stopTimer(host)
 
-  console.log('Shared timer synchronization, avatar chat identity, typing privacy, reconnect, host question visibility, chat privacy, roster-authoritative membership, lock enforcement, and play/pass authorization passed.')
+  console.log('Shared timer synchronization, avatar chat identity, typing privacy, reconnect, host question visibility, chat privacy, lobby team management, roster-authoritative membership, lock enforcement, and play/pass authorization passed.')
 } finally {
   for (const socket of sockets) socket.disconnect()
 }
