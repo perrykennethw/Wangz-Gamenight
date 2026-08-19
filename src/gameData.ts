@@ -102,6 +102,67 @@ export const starterFeudPack: FeudGamePack = {
       ],
     },
   ],
+  fastMoney: {
+    timers: { first: 20, second: 25 },
+    questions: [
+      {
+        id: "fm-morning-first",
+        prompt: "Name something people do first thing in the morning.",
+        answers: [
+          { id: "check-phone", label: "Check their phone", points: 32, aliases: ["Phone"] },
+          { id: "brush-teeth", label: "Brush their teeth", points: 25, aliases: ["Brush teeth"] },
+          { id: "bathroom", label: "Use the bathroom", points: 18, aliases: ["Bathroom"] },
+          { id: "coffee", label: "Drink coffee", points: 15, aliases: ["Coffee"] },
+          { id: "shower", label: "Take a shower", points: 10, aliases: ["Shower"] },
+        ],
+      },
+      {
+        id: "fm-everywhere",
+        prompt: "Name something people take with them everywhere.",
+        answers: [
+          { id: "phone", label: "Phone", points: 40, aliases: ["Cell phone"] },
+          { id: "wallet", label: "Wallet", points: 20 },
+          { id: "keys", label: "Keys", points: 18 },
+          { id: "water-bottle", label: "Water bottle", points: 12, aliases: ["Water"] },
+          { id: "sunglasses", label: "Sunglasses", points: 10, aliases: ["Shades"] },
+        ],
+      },
+      {
+        id: "fm-breakfast",
+        prompt: "Name a popular breakfast food.",
+        answers: [
+          { id: "eggs", label: "Eggs", points: 30 },
+          { id: "cereal", label: "Cereal", points: 25 },
+          { id: "bacon", label: "Bacon", points: 20 },
+          { id: "pancakes", label: "Pancakes", points: 15, aliases: ["Hotcakes"] },
+          { id: "toast", label: "Toast", points: 10 },
+        ],
+      },
+      {
+        id: "fm-waiting",
+        prompt: "Name something people hate waiting for.",
+        answers: [
+          { id: "traffic", label: "Traffic", points: 30 },
+          { id: "food", label: "Food", points: 25, aliases: ["Their order"] },
+          { id: "doctor", label: "The doctor", points: 20, aliases: ["Doctor"] },
+          { id: "late-person", label: "Someone who is late", points: 15, aliases: ["A late friend"] },
+          { id: "customer-service", label: "Customer service", points: 10, aliases: ["Being on hold"] },
+        ],
+      },
+      {
+        id: "fm-spending",
+        prompt: "Name something people spend too much money on.",
+        answers: [
+          { id: "restaurants", label: "Food and restaurants", points: 30, aliases: ["Food", "Eating out"] },
+          { id: "clothes", label: "Clothes", points: 20, aliases: ["Clothing"] },
+          { id: "electronics", label: "Electronics", points: 18, aliases: ["Tech"] },
+          { id: "cars", label: "Cars", points: 12, aliases: ["Car"] },
+          { id: "entertainment", label: "Entertainment", points: 10 },
+          { id: "coffee", label: "Coffee", points: 10 },
+        ],
+      },
+    ],
+  },
 };
 
 export const multiplierForRound = (round: number): number => {

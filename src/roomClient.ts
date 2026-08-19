@@ -5,6 +5,7 @@ import type {
   BuzzerState,
   ClientToServerEvents,
   GameConfig,
+  FastMoneyCommand,
   JoinRoomDetails,
   PlayPassChoice,
   RoomResult,
@@ -150,6 +151,14 @@ class RoomClient {
     });
   }
 
+  fastMoneyAction(command: FastMoneyCommand): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit("fast-money:action", command, (result) =>
+        this.finish(result, resolve, reject),
+      );
+    });
+  }
+
   sendMessage(text: string, team?: TeamId): Promise<ChatMessage> {
     return new Promise((resolve, reject) => {
       this.socket.emit("chat:send", { text, team }, (result) =>
@@ -166,6 +175,12 @@ class RoomClient {
     this.connect();
     this.socket.on("chat:typing", listener);
     return () => this.socket.off("chat:typing", listener);
+  }
+
+  subscribeFastMoneyRepeat(listener: () => void): () => void {
+    this.connect();
+    this.socket.on("fast-money:repeat", listener);
+    return () => this.socket.off("fast-money:repeat", listener);
   }
 
   openPlayPass(): Promise<RoomSnapshot> {

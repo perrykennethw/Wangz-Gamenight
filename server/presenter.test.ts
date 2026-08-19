@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { starterFeudPack } from '../src/gameData.js'
-import { createFeudPresentation, createLobbyPresentation } from '../src/presenterChannel.js'
-import type { RoomSnapshot } from '../src/roomTypes.js'
+import { createFastMoneyPresentation, createFeudPresentation, createLobbyPresentation } from '../src/presenterChannel.js'
+import type { FastMoneyView, RoomSnapshot } from '../src/roomTypes.js'
 
 const config = {
   kind: 'feud' as const,
@@ -84,4 +84,50 @@ assert.equal(feud.question.answers[1].label, '')
 assert.equal(JSON.stringify(feud).includes(config.pack.questions[0].prompt), false)
 assert.equal(JSON.stringify(feud).includes(config.pack.questions[0].answers[1].label), false)
 
-console.log('Presenter state includes the public board while excluding questions, moderator chats, votes, and private participant IDs.')
+const fastMoneyGame: FastMoneyView = {
+  kind: 'fast-money',
+  phase: 'reveal',
+  eligibleTeam: 'one',
+  viewerRole: 'host',
+  contestants: [
+    { id: 'private-player-id', name: 'Avery', avatarId: null },
+    { id: 'other-private-id', name: 'Blake', avatarId: null },
+  ],
+  voteCounts: { 'private-player-id': 2 },
+  viewerVotes: ['private-player-id', 'other-private-id'],
+  currentContestant: null,
+  currentQuestionIndex: null,
+  questions: config.pack.fastMoney!.questions.map((question, index) => ({
+    id: question.id,
+    prompt: question.prompt,
+    responses: [
+      { text: index === 0 ? 'PUBLIC FIRST ANSWER' : 'SECRET FIRST ANSWER', answerId: question.answers[0].id, points: question.answers[0].points, repeated: false },
+      { text: index === 0 ? 'PUBLIC SECOND ANSWER' : 'SECRET SECOND ANSWER', answerId: question.answers[1].id, points: question.answers[1].points, repeated: false },
+    ],
+    answerOptions: question.answers,
+    revealed: index === 0,
+  })),
+  answeredCount: 0,
+  timer: { status: 'idle', durationSeconds: 0, deadline: null, remainingMs: 0 },
+  subtotals: [145, 99],
+  combinedScore: 244,
+  goal: 200,
+  revealIndex: 0,
+  isIsolated: false,
+  outcome: null,
+  message: 'Survey says… let’s build the total.',
+}
+const fastMoney = createFastMoneyPresentation({ ...room, game: fastMoneyGame })
+assert.ok(fastMoney)
+const serializedFastMoney = JSON.stringify(fastMoney)
+assert.equal(serializedFastMoney.includes('PUBLIC FIRST ANSWER'), true)
+assert.equal(serializedFastMoney.includes('SECRET FIRST ANSWER'), false)
+assert.equal(serializedFastMoney.includes('SECRET SECOND ANSWER'), false)
+assert.equal(serializedFastMoney.includes('private-player-id'), false)
+assert.equal(serializedFastMoney.includes('other-private-id'), false)
+assert.equal(serializedFastMoney.includes('answerOptions'), true)
+assert.equal(fastMoney.game.questions.every((question) => question.answerOptions === null), true)
+assert.deepEqual(fastMoney.game.subtotals, [null, null])
+assert.equal(fastMoney.game.combinedScore, config.pack.fastMoney!.questions[0].answers[0].points + config.pack.fastMoney!.questions[0].answers[1].points)
+
+console.log('Presenter state includes public boards while excluding hidden Fast Money answers, moderator chats, votes, and private participant IDs.')

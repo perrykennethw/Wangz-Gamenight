@@ -11,7 +11,9 @@ import { FeudGameBuilder, saveFeudGamePackDraft } from "./FeudGameBuilder";
 import { GamePackError, parseFeudGamePack } from "./feudGamePack";
 import { gameAudio, type GameAudioCue, type GameAudioState } from "./gameAudio";
 import { multiplierForRound, starterFeudPack } from "./gameData";
+import { FastMoneyBoard, FastMoneyClock, FastMoneyHost, FastMoneyPlayer } from "./FastMoney";
 import {
+  createFastMoneyPresentation,
   createFeudPresentation,
   createLobbyPresentation,
   createSpinPresentation,
@@ -20,6 +22,7 @@ import {
   usePresentation,
   usePresentationPublisher,
   type FeudPresentation,
+  type FastMoneyPresentation,
   type LobbyPresentation,
   type SpinPresentation,
 } from "./presenterChannel";
@@ -61,6 +64,7 @@ type ScoreAccent = "gold" | "coral";
 interface Winner {
   name: string;
   score: number;
+  team: TeamId;
 }
 
 interface BoltProps {
@@ -106,6 +110,8 @@ interface WinnerModalProps {
   score: number;
   onReplay: () => void;
   onHome: () => void;
+  onFastMoney?: () => void;
+  fastMoneyError?: string;
 }
 
 interface GameProps {
@@ -2156,6 +2162,12 @@ function PlayerRoom({
             <span>
               {room.config.kind === "spin-solve"
                 ? "Eyes on the main screen—your controls are live below."
+                : room.game?.kind === "fast-money"
+                  ? room.game.isIsolated
+                    ? "Your private holding screen is active below."
+                    : room.game.viewerRole === "contestant-one" || room.game.viewerRole === "contestant-two"
+                      ? "Fast Money is live—your role-specific controls are below."
+                      : "Fast Money is live—follow the finale below."
                 : viewer.team &&
                     room.buzzer.representatives[viewer.team] ===
                       viewer.participantId
@@ -2232,6 +2244,8 @@ function PlayerRoom({
               onSend={onSendMessage}
             />
           </div>
+        ) : room.game?.kind === "fast-money" ? (
+          <FastMoneyPlayer room={room} />
         ) : (
           <>
             {(() => {
@@ -2877,7 +2891,7 @@ function PlayerSpinSolve({
   );
 }
 
-function WinnerModal({ winner, score, onReplay, onHome }: WinnerModalProps) {
+function WinnerModal({ winner, score, onReplay, onHome, onFastMoney, fastMoneyError }: WinnerModalProps) {
   return (
     <div
       className="modal-backdrop"
@@ -2898,6 +2912,11 @@ function WinnerModal({ winner, score, onReplay, onHome }: WinnerModalProps) {
           <span>points</span>
         </div>
         <div className="winner-actions">
+          {onFastMoney && (
+            <button className="primary-button" onClick={onFastMoney}>
+              Play Fast Money
+            </button>
+          )}
           <button className="primary-button" onClick={onReplay}>
             Run it back
           </button>
@@ -2905,6 +2924,7 @@ function WinnerModal({ winner, score, onReplay, onHome }: WinnerModalProps) {
             Game cabinet
           </button>
         </div>
+        {fastMoneyError && <p className="form-error" role="alert">{fastMoneyError}</p>}
       </div>
     </div>
   );
@@ -3037,6 +3057,11 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
   const [strikes, setStrikes] = useState(0);
   const [scores, setScores] = useState<[number, number]>([0, 0]);
   const [winner, setWinner] = useState<Winner | null>(null);
+  const [fastMoneyError, setFastMoneyError] = useState("");
+
+  useEffect(() => roomClient.subscribeFastMoneyRepeat(() => {
+    void gameAudio.play("repeat");
+  }), []);
 
   const question =
     config.pack.questions[questionIndex % config.pack.questions.length];
@@ -3050,19 +3075,20 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
     [revealed, question, multiplier],
   );
   const presentation = useMemo(
-    () =>
-      createFeudPresentation({
-        room,
-        config,
-        round,
-        multiplier,
-        question,
-        revealed,
-        strikes,
-        scores,
-        roundPot,
-        winner,
-      }),
+    () => room.game?.kind === "fast-money"
+      ? createFastMoneyPresentation(room)
+      : createFeudPresentation({
+          room,
+          config,
+          round,
+          multiplier,
+          question,
+          revealed,
+          strikes,
+          scores,
+          roundPot,
+          winner,
+        }),
     [
       room,
       config,
@@ -3103,6 +3129,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
       setWinner({
         name: teamIndex === 0 ? config.teamOne : config.teamTwo,
         score: nextScores[teamIndex],
+        team: teamIndex === 0 ? "one" : "two",
       });
       return;
     }
@@ -3130,6 +3157,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (room.game?.kind === "fast-money") return;
       if (event.key >= "1" && event.key <= String(question.answers.length))
         revealAnswer(Number(event.key) - 1);
       if (event.key.toLowerCase() === "x") addStrike();
@@ -3143,6 +3171,23 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   });
+
+  if (room.game?.kind === "fast-money") {
+    return (
+      <main className="fast-money-shell fast-money-shell--host">
+        <header className="game-topbar fast-money-topbar">
+          <Brand compact />
+          <div><span>Room {roomCode}</span><b>Fast Money · moderator</b></div>
+          <div className="host-view-actions">
+            <span>Moderator tab</span>
+            <PresenterTabButton roomCode={roomCode} />
+            <button className="text-button text-button--light" onClick={onExit}>Exit game</button>
+          </div>
+        </header>
+        <FastMoneyHost room={room} />
+      </main>
+    );
+  }
 
   return (
     <main className="game-shell">
@@ -3281,6 +3326,12 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
           score={winner.score}
           onReplay={onReplay}
           onHome={onExit}
+          onFastMoney={config.pack.fastMoney ? () => {
+            setFastMoneyError("");
+            void roomClient.fastMoneyAction({ type: "start", team: winner.team })
+              .catch((cause) => setFastMoneyError(cause instanceof Error ? cause.message : "Fast Money could not start."));
+          } : undefined}
+          fastMoneyError={fastMoneyError}
         />
       )}
     </main>
@@ -3581,6 +3632,50 @@ function PresenterSpin({ state }: { state: SpinPresentation }) {
   );
 }
 
+function PresenterFastMoney({ state }: { state: FastMoneyPresentation }) {
+  return (
+    <main className="fast-money-shell fast-money-shell--presenter">
+      <header className="presenter-topbar presenter-topbar--game fast-money-topbar">
+        <Brand compact />
+        <span className="presenter-live"><i /> Live finale</span>
+        <div>
+          <b>Room {state.code}</b>
+          <strong>First to 200</strong>
+        </div>
+      </header>
+      <div className="fast-money-presenter-stage">
+        <div className="fast-money-lineup fast-money-lineup--presenter">
+          <ContestantPresenterCard person={state.game.contestants[0]} order={1} />
+          <span>+</span>
+          <ContestantPresenterCard person={state.game.contestants[1]} order={2} />
+        </div>
+        {(state.game.phase === "active-one" || state.game.phase === "active-two") && (
+          <div className="fast-money-presenter-clock">
+            <span>{state.game.contestants[state.game.currentContestant ?? 0]?.name} is on the clock</span>
+            <FastMoneyClock timer={state.game.timer} />
+          </div>
+        )}
+        <FastMoneyBoard game={state.game} />
+      </div>
+    </main>
+  );
+}
+
+function ContestantPresenterCard({
+  person,
+  order,
+}: {
+  person: FastMoneyPresentation["game"]["contestants"][number];
+  order: 1 | 2;
+}) {
+  return (
+    <article className={`fast-money-presenter-person fast-money-presenter-person--${order}`}>
+      <span>{order === 1 ? "20 sec" : "25 sec"}</span>
+      <strong>{person?.name ?? `Contestant ${order}`}</strong>
+    </article>
+  );
+}
+
 function PresenterScreen({ roomCode }: { roomCode: string }) {
   const state = usePresentation(roomCode);
 
@@ -3615,6 +3710,8 @@ function PresenterScreen({ roomCode }: { roomCode: string }) {
     ? <PresenterLobby state={state} />
     : state.mode === "feud"
       ? <PresenterFeud state={state} />
+      : state.mode === "fast-money"
+        ? <PresenterFastMoney state={state} />
       : <PresenterSpin state={state} />;
 
   return (

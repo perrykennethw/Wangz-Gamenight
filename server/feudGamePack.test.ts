@@ -21,10 +21,12 @@ const alternateImported = parseFeudGamePack(JSON.stringify({
     ],
     multiply: 2,
   }],
-  final_round: [{
-    question: 'Name something people do first thing in the morning.',
+  final_round: Array.from({ length: 5 }, (_, index) => ({
+    question: index === 0
+      ? 'Name something people do first thing in the morning.'
+      : `Final question ${index + 1}`,
     answers: [['Check their phone', 32]],
-  }],
+  })),
   final_round_timers: [20, 25],
 }))
 assert.equal(alternateImported.version, 1)
@@ -37,6 +39,31 @@ assert.deepEqual(
   [{ label: 'Eggs', points: 30 }, { label: 'Cereal', points: 25 }],
 )
 assert.match(alternateImported.questions[0].id, /^question-1-/)
+assert.equal(alternateImported.fastMoney?.questions.length, 5)
+assert.equal(alternateImported.fastMoney?.questions[0].prompt, 'Name something people do first thing in the morning.')
+assert.deepEqual(alternateImported.fastMoney?.timers, { first: 20, second: 25 })
+
+assert.throws(
+  () => parseFeudGamePack(JSON.stringify({
+    settings: { theme: 'default' },
+    rounds: [{ question: 'Main question', answers: [{ ans: 'Answer', pnt: 20 }] }],
+    final_round: [{ question: 'Only one finale question', answers: [['Answer', 20]] }],
+  })),
+  (cause) => cause instanceof GamePackError
+    && cause.issues.includes('Fast Money needs exactly 5 questions.'),
+)
+
+const completeAlternate = parseFeudGamePack(JSON.stringify({
+  rounds: [{ question: 'Main question', answers: [{ ans: 'Answer', pnt: 20 }] }],
+  final_round: Array.from({ length: 5 }, (_, index) => ({
+    question: `Final question ${index + 1}`,
+    answers: [['Top answer', 40], ['Second answer', 25]],
+  })),
+  final_round_timers: [30, 35],
+}))
+assert.deepEqual(completeAlternate.fastMoney?.timers, { first: 30, second: 35 })
+assert.equal(completeAlternate.fastMoney?.questions[4].answers[1].points, 25)
+assert.match(completeAlternate.fastMoney?.questions[0].id ?? '', /^fast-money-1-/)
 
 assert.throws(
   () => parseFeudGamePack(JSON.stringify({

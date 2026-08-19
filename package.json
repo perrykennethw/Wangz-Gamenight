@@ -17,6 +17,8 @@
     "test:audio": "tsx server/gameAudio.test.ts",
     "test:timers": "tsx server/sharedTimer.test.ts",
     "test:spin-solve": "tsx server/spinSolve.test.ts",
+    "test:fast-money": "tsx server/fastMoney.test.ts",
+    "test:fast-money-integration": "tsx server/fastMoney.integration.ts",
     "test:privacy": "tsx server/privacy.integration.ts",
     "test:moderated-chat": "tsx server/moderatedChat.integration.ts",
     "test:presenter": "tsx server/presenter.test.ts",
