@@ -1,5 +1,10 @@
 import { HOST_AVATAR_ID, type AvatarId, type Participant } from "./roomTypes";
 import { isValidAvatarId } from "./avatarId";
+import {
+  LEGACY_AVATAR_STORAGE_KEY,
+  readPlayerIdentityPreference,
+  updateRememberedAvatar,
+} from "./playerIdentityPreference";
 
 export interface AvatarOption {
   id: AvatarId;
@@ -62,11 +67,12 @@ export function participantAvatar(participant: Pick<Participant, "avatarId">): A
 }
 
 export function rememberedAvatarId(): AvatarId | null {
-  const avatarId = window.localStorage.getItem("wangz-avatar-id");
+  const avatarId =
+    readPlayerIdentityPreference()?.avatarId ??
+    window.localStorage.getItem(LEGACY_AVATAR_STORAGE_KEY);
   return avatarId ? selectableAvatarsById.get(avatarId)?.id ?? null : null;
 }
 
 export function rememberAvatarId(avatarId: AvatarId | null): void {
-  if (avatarId) window.localStorage.setItem("wangz-avatar-id", avatarId);
-  else window.localStorage.removeItem("wangz-avatar-id");
+  updateRememberedAvatar(avatarId);
 }

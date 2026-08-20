@@ -23,7 +23,7 @@ Run `npm run test:fast-money` for the finale state machine. With the room server
 
 ## QR room invitations
 
-The moderator and presenter lobbies display a QR code that opens the existing player entry screen with the room code prefilled. The code is generated entirely in the browser and contains only a public URL plus the five-character room code. Players still choose their name, avatar, and initial team through the normal join flow.
+The moderator and presenter lobbies display a QR code that opens the existing player entry screen with the room code prefilled. The code is generated entirely in the browser and contains only a public URL plus the five-character room code. First-time players choose a name and avatar; returning players can confirm their saved identity before choosing an initial team.
 
 Production invitations use the page's current origin by default. Set the optional `VITE_PUBLIC_APP_URL` at build time only when the public app URL needs to differ from the browser origin; the deployment workflow accepts an identically named GitHub Actions variable or secret. During local development, phones cannot reach a `localhost` invitation from another device: open the Vite Network URL on the host device so the QR code uses that reachable LAN address.
 
@@ -45,6 +45,12 @@ The avatar deck is a public, build-time catalog backed by Cloudflare R2. Copy `.
 Enter object keys exactly as they appear in R2, including literal spaces such as `contestants/Space Cat.webp`. Do not replace spaces with `%20`; the app safely URL-encodes each path segment when it loads the image.
 
 Only catalog keys—not arbitrary image URLs—travel through multiplayer room state. Players may share an avatar, their last choice persists on that device, and initials remain available if no avatar is selected or an image fails to load. Avatar changes lock when the game begins. A disconnected player has 30 seconds to reconnect with the same private browser session before their roster seat is removed.
+
+### Returning-player quick join
+
+After the room server accepts a join, the browser saves only that player's display name and avatar. A later room entry shows a compact **Join as [name]** confirmation instead of the full avatar catalog; **Change name or avatar** reopens the editor. QR links focus that confirmation when the room code and identity are both ready, but never join automatically.
+
+On a shared device, use **Forget me on this device** to remove both saved values. Room codes, room history, chats, answers, and team activity are never added to this preference. Lobby name or avatar edits update the preference only after the server accepts the change; active-session reconnect behavior remains separate.
 
 `Mudkip.svg` is reserved for the host. The app loads it from the same R2 base URL for host chat and typing identity, omits it from player avatar pickers, and rejects player attempts to submit that key directly.
 
