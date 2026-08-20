@@ -87,6 +87,9 @@ jobs:
       - name: Test room invitation links
         run: npm run test:room-invites
 
+      - name: Test returning-player preferences
+        run: npm run test:player-preferences
+
       - name: Build production application
         run: npm run build
 

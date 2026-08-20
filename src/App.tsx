@@ -34,6 +34,11 @@ import {
   joinRoomCodeFromSearch,
 } from "./roomInvite";
 import {
+  forgetPlayerIdentity,
+  readPlayerIdentityPreference,
+  rememberPlayerIdentity,
+} from "./playerIdentityPreference";
+import {
   SHARED_TIMER_PRESETS,
   remainingSharedTimerMilliseconds,
   type SharedTimerPreset,
@@ -896,18 +901,55 @@ interface JoinRoomProps {
 
 function JoinRoom({ initialCode = "", onBack, onJoin }: JoinRoomProps) {
   const [code, setCode] = useState(initialCode);
-  const [name, setName] = useState("");
-  const [avatarId, setAvatarId] = useState<AvatarId | null>(rememberedAvatarId);
+  const [rememberedIdentity, setRememberedIdentity] = useState(() => {
+    const preference = readPlayerIdentityPreference();
+    if (!preference) return null;
+    return {
+      ...preference,
+      avatarId: preference.avatarId && avatarFor(preference.avatarId)
+        ? preference.avatarId
+        : null,
+    };
+  });
+  const [name, setName] = useState(rememberedIdentity?.name ?? "");
+  const [avatarId, setAvatarId] = useState<AvatarId | null>(
+    rememberedIdentity?.avatarId ?? rememberedAvatarId(),
+  );
+  const [isEditingIdentity, setIsEditingIdentity] = useState(!rememberedIdentity);
   const [error, setError] = useState("");
   const [isJoining, setIsJoining] = useState(false);
+  const nameInput = useRef<HTMLInputElement>(null);
+
+  const editIdentity = () => {
+    setIsEditingIdentity(true);
+    window.requestAnimationFrame(() => nameInput.current?.focus());
+  };
+
+  const useRememberedIdentity = () => {
+    if (!rememberedIdentity) return;
+    setName(rememberedIdentity.name);
+    setAvatarId(rememberedIdentity.avatarId);
+    setIsEditingIdentity(false);
+  };
+
+  const forgetIdentity = () => {
+    forgetPlayerIdentity();
+    setRememberedIdentity(null);
+    setName("");
+    setAvatarId(null);
+    setIsEditingIdentity(true);
+    setError("");
+    window.requestAnimationFrame(() => nameInput.current?.focus());
+  };
 
   const submit = async (event: React.SubmitEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError("");
     setIsJoining(true);
     try {
-      rememberAvatarId(avatarId);
-      await onJoin(code, name, avatarId);
+      const normalizedName = name.trim();
+      await onJoin(code, normalizedName, avatarId);
+      rememberPlayerIdentity(normalizedName, avatarId);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Could not join that room.",
@@ -959,18 +1001,56 @@ function JoinRoom({ initialCode = "", onBack, onJoin }: JoinRoomProps) {
               autoFocus={!initialCode}
             />
           </label>
-          <label>
-            <span>Your name</span>
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="What should we call you?"
-              maxLength={24}
-              required
-              autoFocus={Boolean(initialCode)}
-            />
-          </label>
-          <AvatarPicker selected={avatarId} name={name} onSelect={setAvatarId} />
+          {rememberedIdentity && !isEditingIdentity ? (
+            <section className="returning-player" aria-labelledby="returning-player-name">
+              <div className="returning-player__identity">
+                <IdentityPortrait name={name} avatarId={avatarId} />
+                <span>
+                  <small>Welcome back</small>
+                  <strong id="returning-player-name">{name}</strong>
+                  <em>Saved on this device</em>
+                </span>
+              </div>
+              <p>
+                On a shared device? Confirm this is you, change the player, or
+                forget this saved identity before joining.
+              </p>
+              <div className="returning-player__actions">
+                <button type="button" onClick={editIdentity}>
+                  Change name or avatar
+                </button>
+                <button type="button" onClick={forgetIdentity}>
+                  Forget me on this device
+                </button>
+              </div>
+            </section>
+          ) : (
+            <section className="join-identity-editor" aria-label="Player identity">
+              <label>
+                <span>Your name</span>
+                <input
+                  ref={nameInput}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="What should we call you?"
+                  maxLength={24}
+                  required
+                  autoFocus={Boolean(initialCode)}
+                />
+              </label>
+              <AvatarPicker selected={avatarId} name={name} onSelect={setAvatarId} />
+              {rememberedIdentity && (
+                <div className="join-identity-editor__actions">
+                  <button type="button" onClick={useRememberedIdentity}>
+                    Keep saved identity
+                  </button>
+                  <button type="button" onClick={forgetIdentity}>
+                    Forget me on this device
+                  </button>
+                </div>
+              )}
+            </section>
+          )}
           {error && (
             <p className="form-error" role="alert">
               {error}
@@ -980,13 +1060,18 @@ function JoinRoom({ initialCode = "", onBack, onJoin }: JoinRoomProps) {
             className="primary-button"
             type="submit"
             disabled={isJoining || code.length !== 5 || !name.trim()}
+            autoFocus={Boolean(initialCode) && Boolean(rememberedIdentity) && !isEditingIdentity}
           >
-            {isJoining ? "Joining…" : "Enter the room"}{" "}
+            {isJoining
+              ? "Joining…"
+              : rememberedIdentity && !isEditingIdentity
+                ? `Join as ${name}`
+                : "Enter the room"}{" "}
             {!isJoining && <Arrow />}
           </button>
           <p className="privacy-note">
-            <span aria-hidden="true">◈</span> Your huddle is visible to
-            teammates and the host—not the other team.
+            <span aria-hidden="true">◈</span> This device remembers only your
+            name and avatar—not room codes, chats, answers, or room history.
           </p>
         </form>
       </section>
@@ -2002,6 +2087,7 @@ function LobbyAvatarEditor({ room, participantId }: { room: RoomSnapshot; partic
     setError("");
     try {
       await roomClient.updateIdentity(draftName, participant.avatarId);
+      rememberPlayerIdentity(draftName, participant.avatarId);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not update your name.");
     } finally {

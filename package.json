@@ -23,6 +23,7 @@
     "test:moderated-chat": "tsx server/moderatedChat.integration.ts",
     "test:presenter": "tsx server/presenter.test.ts",
     "test:room-invites": "tsx server/roomInvite.test.ts",
+    "test:player-preferences": "tsx server/playerIdentityPreference.test.ts",
     "server": "tsx server/index.ts",
     "start": "node server-dist/server/index.js",
     "preview": "vite preview"
