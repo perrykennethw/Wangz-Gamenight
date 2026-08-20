@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { roomCodeFromSearch } from "./roomInvite";
 import type {
   BuzzerStatus,
   FeudAnswer,
@@ -229,13 +230,12 @@ export function createFastMoneyPresentation(
   };
 }
 
+export function presenterRoomCodeFromSearch(search: string): string | null {
+  return roomCodeFromSearch(search, "present");
+}
+
 export function presenterRoomCode(): string | null {
-  const code =
-    new URLSearchParams(window.location.search)
-      .get("present")
-      ?.trim()
-      .toUpperCase() ?? "";
-  return /^[A-Z0-9]{5}$/.test(code) ? code : null;
+  return presenterRoomCodeFromSearch(window.location.search);
 }
 
 export function openPresenterTab(code: string): boolean {

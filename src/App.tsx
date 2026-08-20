@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, DragEvent, FormEvent } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import {
   avatarFor,
   avatarOptions,
@@ -27,6 +28,11 @@ import {
   type SpinPresentation,
 } from "./presenterChannel";
 import { roomClient } from "./roomClient";
+import {
+  browserRoomInviteUrl,
+  isLocalRoomInviteUrl,
+  joinRoomCodeFromSearch,
+} from "./roomInvite";
 import {
   SHARED_TIMER_PRESETS,
   remainingSharedTimerMilliseconds,
@@ -517,6 +523,73 @@ function PresenterTabButton({ roomCode }: { roomCode: string }) {
   );
 }
 
+function RoomInviteCard({
+  roomCode,
+  view,
+}: {
+  roomCode: string;
+  view: "moderator" | "presenter";
+}) {
+  const invitationUrl = useMemo(() => browserRoomInviteUrl(roomCode), [roomCode]);
+  const localOnly = isLocalRoomInviteUrl(invitationUrl);
+  const [status, setStatus] = useState("");
+
+  const copy = async (value: string, successMessage: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setStatus(successMessage);
+    } catch {
+      setStatus("Could not copy. Select the room code instead.");
+    }
+    window.setTimeout(() => setStatus(""), 1800);
+  };
+
+  return (
+    <aside
+      className={`room-invite-card room-invite-card--${view}`}
+      aria-label={`Join room ${roomCode}`}
+    >
+      <div className="room-invite-card__qr">
+        <QRCodeSVG
+          value={invitationUrl}
+          size={view === "presenter" ? 220 : 176}
+          level="M"
+          marginSize={4}
+          bgColor="#ffffff"
+          fgColor="#081934"
+          title={`Scan to join room ${roomCode}`}
+        />
+      </div>
+      <div className="room-invite-card__details">
+        <span>Scan to join</span>
+        <strong>{roomCode}</strong>
+        <small>Open your camera and point it here.</small>
+        {view === "moderator" && (
+          <div className="room-invite-card__actions">
+            <button type="button" onClick={() => void copy(roomCode, "Room code copied!")}>
+              Copy code
+            </button>
+            <button type="button" onClick={() => void copy(invitationUrl, "Join link copied!")}>
+              Copy join link
+            </button>
+          </div>
+        )}
+      </div>
+      {localOnly && view === "moderator" && (
+        <p className="room-invite-card__warning">
+          Phones cannot open localhost. Reopen the host on the Vite Network URL
+          to make this QR code reachable.
+        </p>
+      )}
+      {status && (
+        <p className="room-invite-card__status" role="status" aria-live="polite">
+          {status}
+        </p>
+      )}
+    </aside>
+  );
+}
+
 function Home({ onChooseFeud, onChooseSpinSolve, onJoin }: HomeProps) {
   return (
     <main className="home-shell">
@@ -816,12 +889,13 @@ function Setup({
 }
 
 interface JoinRoomProps {
+  initialCode?: string;
   onBack: () => void;
   onJoin: (code: string, name: string, avatarId: AvatarId | null) => Promise<void>;
 }
 
-function JoinRoom({ onBack, onJoin }: JoinRoomProps) {
-  const [code, setCode] = useState("");
+function JoinRoom({ initialCode = "", onBack, onJoin }: JoinRoomProps) {
+  const [code, setCode] = useState(initialCode);
   const [name, setName] = useState("");
   const [avatarId, setAvatarId] = useState<AvatarId | null>(rememberedAvatarId);
   const [error, setError] = useState("");
@@ -882,7 +956,7 @@ function JoinRoom({ onBack, onJoin }: JoinRoomProps) {
               autoComplete="off"
               maxLength={5}
               required
-              autoFocus
+              autoFocus={!initialCode}
             />
           </label>
           <label>
@@ -893,6 +967,7 @@ function JoinRoom({ onBack, onJoin }: JoinRoomProps) {
               placeholder="What should we call you?"
               maxLength={24}
               required
+              autoFocus={Boolean(initialCode)}
             />
           </label>
           <AvatarPicker selected={avatarId} name={name} onSelect={setAvatarId} />
@@ -1579,7 +1654,6 @@ interface HostLobbyProps {
 }
 
 function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
-  const [copied, setCopied] = useState(false);
   const [error, setError] = useState("");
   const [isStarting, setIsStarting] = useState(false);
   const [isRandomizing, setIsRandomizing] = useState(false);
@@ -1599,12 +1673,6 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
     [room, teamRevealRevision],
   );
   usePresentationPublisher(presentation);
-
-  const copyCode = async () => {
-    await navigator.clipboard.writeText(room.code);
-    setCopied(true);
-    window.setTimeout(() => setCopied(false), 1600);
-  };
 
   const start = async () => {
     setError("");
@@ -1687,14 +1755,11 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
             Room <em>{room.code}</em>
           </h1>
           <p>
-            Open this app on a phone, choose <strong>Join a room</strong>, and
-            enter the code.
+            Scan the QR code with a phone, or choose <strong>Join a room</strong>{" "}
+            and enter the code.
           </p>
         </div>
-        <button className="copy-code" onClick={copyCode}>
-          <span>{room.code}</span>
-          <small>{copied ? "Copied!" : "Copy code"}</small>
-        </button>
+        <RoomInviteCard roomCode={room.code} view="moderator" />
       </section>
       <section className="lobby-content">
         <div className="lobby-status">
@@ -3394,11 +3459,14 @@ function PresenterLobby({ state }: { state: LobbyPresentation }) {
         </aside>
       )}
       <section className="presenter-lobby__hero">
-        <p className="eyebrow">Players, grab a phone and join</p>
-        <h1>
-          Room <em>{state.code}</em>
-        </h1>
-        <p>{state.game} · Pick your team after joining.</p>
+        <div className="presenter-lobby__copy">
+          <p className="eyebrow">Players, grab a phone and join</p>
+          <h1>
+            Room <em>{state.code}</em>
+          </h1>
+          <p>{state.game} · Pick your team after joining.</p>
+        </div>
+        <RoomInviteCard roomCode={state.code} view="presenter" />
       </section>
       <section className="presenter-rosters">
         {(["one", "two"] as TeamId[]).map((team) => (
@@ -3748,7 +3816,13 @@ function PresenterScreen({ roomCode }: { roomCode: string }) {
 
 export default function App() {
   const presentationCode = useMemo(presenterRoomCode, []);
-  const [screen, setScreen] = useState<Screen>("home");
+  const initialJoinCode = useMemo(
+    () => joinRoomCodeFromSearch(window.location.search),
+    [],
+  );
+  const [screen, setScreen] = useState<Screen>(() =>
+    initialJoinCode ? "join" : "home",
+  );
   const [config, setConfig] = useState<GameConfig | null>(null);
   const [selectedGame, setSelectedGame] = useState<GameConfig["kind"]>("feud");
   const [feudPack, setFeudPack] = useState<FeudGamePack>(starterFeudPack);
@@ -3856,7 +3930,11 @@ export default function App() {
         />
       )}
       {screen === "join" && (
-        <JoinRoom onBack={() => setScreen("home")} onJoin={joinRoom} />
+        <JoinRoom
+          initialCode={initialJoinCode ?? ""}
+          onBack={() => setScreen("home")}
+          onJoin={joinRoom}
+        />
       )}
       {screen === "host-lobby" && room && (
         <HostLobby room={room} onStart={startGame} onExit={leaveRoom} />
