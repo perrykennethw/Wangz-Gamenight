@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { starterFeudPack } from '../src/gameData.js'
-import { createFastMoneyPresentation, createFeudPresentation, createLobbyPresentation } from '../src/presenterChannel.js'
+import { createFastMoneyPresentation, createFeudPresentation, createLobbyPresentation, presenterRoomCodeFromSearch } from '../src/presenterChannel.js'
 import type { FastMoneyView, RoomSnapshot } from '../src/roomTypes.js'
 
 const config = {
@@ -48,6 +48,10 @@ const room: RoomSnapshot = {
   viewer: { role: 'host' },
   game: null,
 }
+
+assert.equal(presenterRoomCodeFromSearch('?present=abc12'), 'ABC12')
+assert.equal(presenterRoomCodeFromSearch('?join=ABC12'), null)
+assert.equal(presenterRoomCodeFromSearch('?present=ABC-12'), null)
 
 const lobby = createLobbyPresentation(room, 2)
 const feud = createFeudPresentation({

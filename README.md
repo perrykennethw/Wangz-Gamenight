@@ -21,6 +21,12 @@ Run `npm run test:fast-money` for the finale state machine. With the room server
 
 `npm run dev` starts both the Vite app and the realtime room server. Friends on the same Wi-Fi network can open the Network URL printed by Vite, select **Join a room**, and enter the five-character code shown on the host screen.
 
+## QR room invitations
+
+The moderator and presenter lobbies display a QR code that opens the existing player entry screen with the room code prefilled. The code is generated entirely in the browser and contains only a public URL plus the five-character room code. Players still choose their name, avatar, and initial team through the normal join flow.
+
+Production invitations use the page's current origin by default. Set the optional `VITE_PUBLIC_APP_URL` at build time only when the public app URL needs to differ from the browser origin; the deployment workflow accepts an identically named GitHub Actions variable or secret. During local development, phones cannot reach a `localhost` invitation from another device: open the Vite Network URL on the host device so the QR code uses that reachable LAN address.
+
 ## Multiplayer rooms
 
 - The host creates an ephemeral room after configuring the teams.
