@@ -90,6 +90,9 @@ jobs:
       - name: Test returning-player preferences
         run: npm run test:player-preferences
 
+      - name: Test Family Feud turn order
+        run: npm run test:turn-order
+
       - name: Build production application
         run: npm run build
 
@@ -117,6 +120,7 @@ jobs:
           npm run test:privacy
           npm run test:moderated-chat
           npm run test:fast-money-integration
+          npm run test:turn-order-integration
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0

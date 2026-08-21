@@ -604,6 +604,19 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 .host-huddles .chat-feed { max-height: 250px; }
 
 .player-huddle-stack { display: grid; align-content: start; gap: 13px; min-width: 0; }
+.player-turn-card { padding: 14px; color: var(--ink); background: #ebe7df; border-left: 6px solid var(--gold); }
+.player-turn-card--two { border-color: var(--coral); }
+.player-turn-card.is-active { color: var(--paper); background: #10284d; box-shadow: inset 0 0 0 2px var(--gold); }
+.player-turn-card > header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 11px; }
+.player-turn-card > header span { color: #5f6874; font-size: 7px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
+.player-turn-card.is-active > header span { color: var(--gold); }
+.player-turn-card > header strong { font-family: var(--display); font-size: 19px; letter-spacing: .03em; text-align: right; text-transform: uppercase; }
+.player-turn-card > div { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.player-turn-card > div > span { display: grid; gap: 6px; min-width: 0; padding: 9px; background: rgba(255,255,255,.55); }
+.player-turn-card.is-active > div > span { background: rgba(255,255,255,.1); }
+.player-turn-card > div small { color: #66717e; font-size: 7px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+.player-turn-card.is-active > div small { color: #a9bad2; }
+.player-turn-card > div b { font-size: 10px; }
 .play-pass-slip { position: relative; padding: 18px; color: var(--ink); background: var(--gold); border: 3px solid var(--ink); box-shadow: 6px 6px 0 var(--coral); }
 .play-pass-slip::after { content: ''; position: absolute; right: 12px; bottom: -8px; left: 12px; border-bottom: 3px dotted var(--ink); }
 .play-pass-slip > header { display: flex; align-items: baseline; justify-content: space-between; gap: 15px; padding-bottom: 11px; border-bottom: 2px solid var(--ink); }
@@ -640,6 +653,26 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 .host-play-pass--decided { color: var(--paper); background: var(--ink); border-color: var(--gold); }
 .host-play-pass--decided .host-play-pass__status > span { color: var(--ink); background: var(--paper); }
 .host-play-pass--decided .host-play-pass__status button { color: var(--ink); background: var(--gold); }
+.host-turn-order { grid-column: 1 / -1; padding: 17px; color: var(--paper); background: #07152d; border: 1px solid rgba(255,255,255,.15); border-left: 7px solid var(--gold); }
+.host-turn-order > header { display: flex; align-items: end; justify-content: space-between; gap: 25px; margin-bottom: 13px; }
+.host-turn-order > header span { color: var(--gold); font-size: 8px; font-weight: 900; letter-spacing: .15em; text-transform: uppercase; }
+.host-turn-order > header h2 { margin: 4px 0 0; font-family: var(--display); font-size: 27px; letter-spacing: .03em; text-transform: uppercase; }
+.host-turn-order > header p { max-width: 430px; margin: 0; color: #9eb2d1; font-size: 9px; line-height: 1.45; text-align: right; }
+.host-turn-order__teams { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.host-turn-team { display: grid; grid-template-columns: 1fr auto; gap: 10px 12px; padding: 13px; color: var(--ink); background: #dfe5ed; border-top: 6px solid #7c8da7; }
+.host-turn-team--two { background: #eadfdc; }
+.host-turn-team.is-active { background: var(--paper); border-color: var(--gold); box-shadow: inset 0 0 0 2px var(--gold); }
+.host-turn-team--two.is-active { border-color: var(--coral); box-shadow: inset 0 0 0 2px var(--coral); }
+.host-turn-team__heading span { color: var(--blue); font-size: 7px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; }
+.host-turn-team__heading h3 { margin: 3px 0 0; font-family: var(--display); font-size: 23px; line-height: 1; text-transform: uppercase; }
+.host-turn-team__players { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.host-turn-team__players > div { display: grid; align-content: start; gap: 7px; min-width: 0; padding: 9px; background: rgba(255,255,255,.62); }
+.host-turn-team__players small, .host-turn-team > label > span { color: #66717e; font-size: 7px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+.host-turn-team__players > div > strong { font-size: 9px; }
+.host-turn-team > label { display: grid; gap: 5px; min-width: 0; }
+.host-turn-team select { min-width: 0; min-height: 38px; padding: 8px; color: var(--ink); background: var(--white); border: 1px solid #9ba5b2; font-weight: 800; }
+.host-turn-team > button { align-self: end; min-height: 38px; padding: 8px 11px; color: var(--paper); background: var(--blue); border: 0; font-size: 8px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
+.host-turn-order > small { display: block; margin-top: 9px; color: #ff9d8d; font-weight: 800; }
 
 .host-view-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; }
 .host-view-actions > span:first-child { color: #8395b0; font-size: 8px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
@@ -689,6 +722,12 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 .presenter-decision .player-identity { padding: 3px 10px 3px 3px; background: rgba(255,255,255,.42); }
 .presenter-decision .player-identity strong { font-size: 12px; }
 .presenter-decision--locked { color: var(--paper); background: #10284d; border-color: var(--gold); }
+.presenter-turn { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-width: 720px; margin: 0 auto 14px; }
+.presenter-turn > div { display: flex; align-items: center; gap: 11px; min-width: 0; padding: 10px 13px; color: var(--ink); background: var(--paper); border-top: 5px solid var(--gold); }
+.presenter-turn--two > div { border-color: var(--coral); }
+.presenter-turn > div > span { color: var(--blue); font-size: 8px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; }
+.presenter-turn > div > .player-identity, .presenter-turn > div > strong { margin-left: auto; }
+.presenter-turn > div > strong { font-size: 9px; }
 .presenter-round-status { display: flex; align-items: center; gap: 15px; max-width: 1080px; margin: 21px auto 0; padding: 14px 17px; color: var(--ink); background: var(--paper); border-left: 7px solid var(--coral); }
 .presenter-round-status > span { font-size: 9px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
 .presenter-round-status p { margin: 0 0 0 auto; color: #69717b; font-size: 9px; }
@@ -1163,6 +1202,13 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
   .host-play-pass { grid-template-columns: 1fr; }
   .host-play-pass__status { grid-template-columns: 1fr 1fr; }
   .host-play-pass__status button { grid-column: 1 / -1; justify-self: stretch; }
+  .host-turn-order { padding: 12px; }
+  .host-turn-order > header { align-items: flex-start; flex-direction: column; gap: 7px; }
+  .host-turn-order > header p { text-align: left; }
+  .host-turn-order__teams { grid-template-columns: 1fr; }
+  .host-turn-team { grid-template-columns: 1fr; }
+  .host-turn-team__players, .host-turn-team > label { grid-column: 1; }
+  .host-turn-team > button { width: 100%; }
   .strike-panel { grid-template-columns: auto 1fr auto; padding: 11px; }
   .strike-actions button { padding: 9px; }
   .strike-actions button:first-child { display: none; }
@@ -1276,6 +1322,7 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
   .presenter-host-cue { padding-inline: 15px; }
   .presenter-host-cue::after { right: 8px; }
   .presenter-decision { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .presenter-turn { grid-template-columns: 1fr; }
   .presenter-round-status { flex-wrap: wrap; margin-inline: 10px; }
   .presenter-round-status p { width: 100%; margin-left: 0; }
   .presenter-spin-lower { grid-template-columns: 1fr; margin-inline: 10px; }

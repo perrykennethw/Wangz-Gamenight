@@ -1,4 +1,5 @@
 import type { SharedTimerPreset, SharedTimerState } from "./sharedTimer.js";
+import type { FeudTurnOrderView } from "./feudTurnOrder.js";
 
 export type TeamId = "one" | "two";
 export type RoomPhase = "lobby" | "playing";
@@ -10,6 +11,7 @@ export type AvatarId = string;
 export const HOST_AVATAR_ID: AvatarId = "Mudkip.svg";
 
 export type { SharedTimerPreset, SharedTimerState } from "./sharedTimer.js";
+export type { FeudTurnOrderView } from "./feudTurnOrder.js";
 
 export interface JoinRoomDetails {
   code: string;
@@ -246,6 +248,7 @@ export interface RoomSnapshot {
   teamChats: Partial<Record<TeamId, ChatMessage[]>>;
   chat: ChatState;
   playPass: PlayPassPollView;
+  feudTurns: FeudTurnOrderView;
   buzzer: BuzzerState;
   timer: SharedTimerState;
   viewer: RoomViewer;
@@ -350,6 +353,13 @@ export interface ClientToServerEvents {
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "feud:end-question": (
+    reply: (result: RoomResult<RoomSnapshot>) => void,
+  ) => void;
+  "feud:advance-turn": (
+    reply: (result: RoomResult<RoomSnapshot>) => void,
+  ) => void;
+  "feud:set-turn-player": (
+    details: { team: TeamId; participantId: string },
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "buzzer:arm": (reply: (result: RoomResult<RoomSnapshot>) => void) => void;

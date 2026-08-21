@@ -23,6 +23,17 @@ import {
 } from '../src/roomTypes.js'
 import { GamePackError, normalizeFeudGamePack } from '../src/feudGamePack.js'
 import {
+  activateFeudTurnTeam,
+  advanceFeudTurn,
+  createFeudTurnState,
+  deactivateFeudTurns,
+  repairFeudTurnState,
+  seedFeudTurnsAfterRepresentatives,
+  selectFeudTurnPlayer,
+  viewFeudTurnOrder,
+  type FeudTurnState,
+} from '../src/feudTurnOrder.js'
+import {
   createIdleSharedTimer,
   expireSharedTimer,
   isSharedTimerPreset,
@@ -63,6 +74,7 @@ interface Room {
     decision: PlayPassChoice | null
     controllingTeam: TeamId | null
   }
+  feudTurns: FeudTurnState
   game: SpinSolveState | FastMoneyState | null
   buzzer: BuzzerState
   timer: SharedTimerState
@@ -232,6 +244,7 @@ function otherTeam(team: TeamId): TeamId {
 function endFeudQuestion(room: Room): void {
   room.chatLockedTeam = null
   room.playPass = closedPlayPass()
+  room.feudTurns = deactivateFeudTurns(room.feudTurns)
 }
 
 function playPassViewFor(room: Room, connection: Connection, participant?: Participant): PlayPassPollView {
@@ -293,6 +306,7 @@ function snapshotFor(room: Room, socketId: string): RoomSnapshot {
       reason: room.chatLockedTeam ? 'The answering team is live. This huddle reopens when the host ends the question.' : null,
     },
     playPass: playPassViewFor(room, connection, participant),
+    feudTurns: viewFeudTurnOrder(room.feudTurns, connectedParticipantIds(room)),
     buzzer: room.buzzer,
     timer: room.timer,
     viewer: connection.role === 'host'
@@ -441,6 +455,31 @@ function playersForTeam(room: Room, team: TeamId): Participant[] {
   return [...room.participants.values()].filter((participant) => participant.team === team)
 }
 
+function connectedParticipantIds(room: Room): Set<string> {
+  return new Set(
+    [...room.connections.values()]
+      .map((connection) => connection.participantId)
+      .filter((participantId): participantId is string => Boolean(participantId)),
+  )
+}
+
+function repairRoomFeudTurns(room: Room): void {
+  room.feudTurns = repairFeudTurnState(
+    room.feudTurns,
+    [...room.participants.values()],
+    connectedParticipantIds(room),
+  )
+}
+
+function seedRoomFeudTurns(room: Room): void {
+  repairRoomFeudTurns(room)
+  room.feudTurns = seedFeudTurnsAfterRepresentatives(
+    room.feudTurns,
+    room.buzzer.representatives,
+    connectedParticipantIds(room),
+  )
+}
+
 function nextRepresentative(room: Room, team: TeamId): string | null {
   const players = playersForTeam(room, team)
   if (players.length === 0) return null
@@ -469,6 +508,7 @@ function removeParticipant(room: Room, participantId: string): void {
       },
     }
   }
+  repairRoomFeudTurns(room)
 }
 
 function leaveCurrentRoom(
@@ -505,11 +545,12 @@ function leaveCurrentRoom(
         removeParticipant(room, participantId)
         syncRoom(room)
       }, reconnectGraceMs))
+      repairRoomFeudTurns(room)
     } else {
       removeParticipant(room, connection.participantId)
     }
   }
-  if (notifySocket) syncRoom(room)
+  if (notifySocket || (preservePlayer && connection?.participantId)) syncRoom(room)
 }
 
 io.on('connection', (socket) => {
@@ -537,6 +578,7 @@ io.on('connection', (socket) => {
       typing: new Map(),
       chatLockedTeam: null,
       playPass: closedPlayPass(),
+      feudTurns: createFeudTurnState([], { one: null, two: null }, new Set()),
       game: null,
       buzzer: { status: 'idle', winner: null, representatives: { one: null, two: null } },
       timer: createIdleSharedTimer(),
@@ -587,6 +629,7 @@ io.on('connection', (socket) => {
       savedParticipant.avatarId = cleanAvatarId
       room.connections.set(socket.id, { role: 'player', participantId: savedParticipant.id })
       socketRooms.set(socket.id, room.code)
+      repairRoomFeudTurns(room)
       const snapshot = snapshotFor(room, socket.id)
       reply({ ok: true, data: snapshot })
       syncRoom(room)
@@ -817,6 +860,8 @@ io.on('connection', (socket) => {
     room.playPass.status = 'decided'
     room.playPass.decision = choice
     room.playPass.controllingTeam = controllingTeam
+    repairRoomFeudTurns(room)
+    room.feudTurns = activateFeudTurnTeam(room.feudTurns, controllingTeam)
     clearTeamTyping(room, controllingTeam)
     room.chatLockedTeam = controllingTeam
     const snapshot = snapshotFor(room, socket.id)
@@ -830,6 +875,51 @@ io.on('connection', (socket) => {
     if (room.config.kind !== 'feud') return reply({ ok: false, error: 'Play/pass controls are only available in Family Feud.' })
 
     endFeudQuestion(room)
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('feud:advance-turn', (reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) {
+      return reply({ ok: false, error: 'Only the host can advance the answering order.' })
+    }
+    if (room.phase !== 'playing' || room.config.kind !== 'feud' || room.game?.kind === 'fast-money') {
+      return reply({ ok: false, error: 'Start a Family Feud question before advancing the answering order.' })
+    }
+
+    repairRoomFeudTurns(room)
+    const activeTeam = room.feudTurns.activeTeam
+    if (!activeTeam || !room.feudTurns.teams[activeTeam].currentPlayerId) {
+      return reply({ ok: false, error: 'Finish Play or Pass before advancing the answering order.' })
+    }
+    room.feudTurns = advanceFeudTurn(room.feudTurns, connectedParticipantIds(room))
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('feud:set-turn-player', ({ team, participantId }, reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) {
+      return reply({ ok: false, error: 'Only the host can choose the current player.' })
+    }
+    if (room.phase !== 'playing' || room.config.kind !== 'feud' || room.game?.kind === 'fast-money') {
+      return reply({ ok: false, error: 'Start a Family Feud question before choosing the current player.' })
+    }
+    if (!isTeamId(team)) return reply({ ok: false, error: 'Choose one of the two teams.' })
+
+    repairRoomFeudTurns(room)
+    const participant = room.participants.get(participantId)
+    if (
+      participant?.team !== team ||
+      !connectedParticipantIds(room).has(participant.id) ||
+      !room.feudTurns.teams[team].order.includes(participant.id)
+    ) {
+      return reply({ ok: false, error: 'Choose a connected player from that team.' })
+    }
+    room.feudTurns = selectFeudTurnPlayer(room.feudTurns, team, participant.id)
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
     syncRoom(room)
@@ -853,6 +943,11 @@ io.on('connection', (socket) => {
         two: playersForTeam(room, 'two')[0]?.id ?? null,
       },
     }
+    room.feudTurns = createFeudTurnState(
+      [...room.participants.values()],
+      room.buzzer.representatives,
+      connectedParticipantIds(room),
+    )
     if (room.config.kind === 'spin-solve') {
       room.game = createSpinSolveGame(room.config, { random: Math.random, now: Date.now })
     }
@@ -979,7 +1074,10 @@ io.on('connection', (socket) => {
     })
     if (!representativesReady) return reply({ ok: false, error: 'Choose one representative from each team before arming the buzzer.' })
 
-    if (room.config.kind === 'feud') endFeudQuestion(room)
+    if (room.config.kind === 'feud') {
+      endFeudQuestion(room)
+      seedRoomFeudTurns(room)
+    }
     room.buzzer = { ...room.buzzer, status: 'armed', winner: null }
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
@@ -1018,6 +1116,7 @@ io.on('connection', (socket) => {
       winner: null,
       representatives: { ...room.buzzer.representatives, [team]: participantId },
     }
+    if (!room.feudTurns.activeTeam) seedRoomFeudTurns(room)
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
     syncRoom(room)
@@ -1036,6 +1135,7 @@ io.on('connection', (socket) => {
         two: nextRepresentative(room, 'two'),
       },
     }
+    seedRoomFeudTurns(room)
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
     syncRoom(room)

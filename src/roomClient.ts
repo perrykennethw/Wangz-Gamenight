@@ -215,6 +215,22 @@ class RoomClient {
     });
   }
 
+  advanceFeudTurn(): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit("feud:advance-turn", (result) =>
+        this.finish(result, resolve, reject),
+      );
+    });
+  }
+
+  setFeudTurnPlayer(team: TeamId, participantId: string): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit("feud:set-turn-player", { team, participantId }, (result) =>
+        this.finish(result, resolve, reject),
+      );
+    });
+  }
+
   armBuzzer(): Promise<RoomSnapshot> {
     return new Promise((resolve, reject) => {
       this.socket.emit("buzzer:arm", (result) =>

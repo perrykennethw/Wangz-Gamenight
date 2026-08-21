@@ -1732,6 +1732,174 @@ function HostPlayPassPanel({ room }: { room: RoomSnapshot }) {
   );
 }
 
+function feudTurnParticipant(room: RoomSnapshot, participantId: string | null) {
+  return participantId
+    ? room.participants.find((participant) => participant.id === participantId)
+    : undefined;
+}
+
+function HostFeudTurnPanel({ room }: { room: RoomSnapshot }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const activeTeam = room.feudTurns.activeTeam;
+
+  const choosePlayer = async (team: TeamId, participantId: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      await roomClient.setFeudTurnPlayer(team, participantId);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not change the answering order.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const advance = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await roomClient.advanceFeudTurn();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not advance the answering order.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="host-turn-order" aria-label="Answering order">
+      <header>
+        <div>
+          <span>Round rotation</span>
+          <h2>
+            {activeTeam
+              ? `${teamName(room, activeTeam)} are answering`
+              : "Play or Pass sets control"}
+          </h2>
+        </div>
+        <p>
+          Correct reveals and the first two strikes move to the next player.
+          Override the order here for skips or AFK players.
+        </p>
+      </header>
+      <div className="host-turn-order__teams">
+        {(["one", "two"] as TeamId[]).map((team) => {
+          const turn = room.feudTurns.teams[team];
+          const current = feudTurnParticipant(room, turn.currentPlayerId);
+          const next = feudTurnParticipant(room, turn.nextPlayerId);
+          const roster = turn.order
+            .map((participantId) => feudTurnParticipant(room, participantId))
+            .filter((participant): participant is Participant => Boolean(participant));
+          const isActive = team === activeTeam;
+          return (
+            <article
+              className={`host-turn-team host-turn-team--${team} ${isActive ? "is-active" : ""}`}
+              key={team}
+            >
+              <div className="host-turn-team__heading">
+                <span>{isActive ? "Answering now" : activeTeam ? "Standby order" : "If selected"}</span>
+                <h3>{teamName(room, team)}</h3>
+              </div>
+              <div className="host-turn-team__players">
+                <div>
+                  <small>{isActive ? "Now" : "First up"}</small>
+                  {current ? (
+                    <PlayerIdentity participant={current} compact />
+                  ) : (
+                    <strong>No connected player</strong>
+                  )}
+                </div>
+                <div>
+                  <small>Next</small>
+                  {next ? (
+                    <PlayerIdentity participant={next} compact />
+                  ) : (
+                    <strong>Waiting for teammate</strong>
+                  )}
+                </div>
+              </div>
+              <label>
+                <span>Host override</span>
+                <select
+                  aria-label={`${teamName(room, team)} current player`}
+                  value={turn.currentPlayerId ?? ""}
+                  disabled={busy || !roster.length}
+                  onChange={(event) => void choosePlayer(team, event.target.value)}
+                >
+                  {!roster.length && <option value="">No connected players</option>}
+                  {roster.map((participant) => (
+                    <option key={participant.id} value={participant.id}>
+                      {participant.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {isActive && (
+                <button disabled={busy || !current} onClick={() => void advance()}>
+                  Next player →
+                </button>
+              )}
+            </article>
+          );
+        })}
+      </div>
+      {error && <small role="alert">{error}</small>}
+    </section>
+  );
+}
+
+function PlayerFeudTurnCard({
+  room,
+  team,
+  participantId,
+}: {
+  room: RoomSnapshot;
+  team: TeamId;
+  participantId: string;
+}) {
+  const turn = room.feudTurns.teams[team];
+  const current = feudTurnParticipant(room, turn.currentPlayerId);
+  const next = feudTurnParticipant(room, turn.nextPlayerId);
+  const isActiveTeam = room.feudTurns.activeTeam === team;
+  const status = !room.feudTurns.activeTeam
+    ? "Order ready after Play or Pass"
+    : isActiveTeam
+      ? current?.id === participantId
+        ? "You’re up"
+        : next?.id === participantId
+          ? "You’re on deck"
+          : `${current?.name ?? "A teammate"} is up`
+      : `${teamName(room, room.feudTurns.activeTeam)} are answering`;
+
+  return (
+    <section
+      className={`player-turn-card player-turn-card--${team} ${isActiveTeam ? "is-active" : ""}`}
+      aria-label={`${teamName(room, team)} answering order`}
+      aria-live="polite"
+    >
+      <header>
+        <span>{isActiveTeam ? "Your team is live" : "Answering order"}</span>
+        <strong>{status}</strong>
+      </header>
+      <div>
+        <span>
+          <small>{isActiveTeam ? "Now" : "First up"}</small>
+          {current ? <PlayerIdentity participant={current} compact /> : <b>Waiting</b>}
+        </span>
+        <span>
+          <small>Next</small>
+          {next ? <PlayerIdentity participant={next} compact /> : <b>Waiting</b>}
+        </span>
+      </div>
+    </section>
+  );
+}
+
 interface HostLobbyProps {
   room: RoomSnapshot;
   onStart: () => Promise<void>;
@@ -2403,6 +2571,11 @@ function PlayerRoom({
               const chat = (
                 <div className="player-huddle-stack">
                   <PlayPassPanel room={room} />
+                  <PlayerFeudTurnCard
+                    room={room}
+                    team={viewer.team!}
+                    participantId={viewer.participantId}
+                  />
                   <TeamChat
                     team={viewer.team}
                     teamLabel={teamName(room, viewer.team)}
@@ -3281,11 +3454,17 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
     setRevealed((current) =>
       current.includes(index) ? current : [...current, index],
     );
+    if (room.feudTurns.activeTeam && strikes < 3) {
+      void roomClient.advanceFeudTurn().catch(() => undefined);
+    }
   };
 
   const addStrike = () => {
     void gameAudio.play("wrong");
     setStrikes((current) => Math.min(3, current + 1));
+    if (room.feudTurns.activeTeam && strikes < 2) {
+      void roomClient.advanceFeudTurn().catch(() => undefined);
+    }
   };
 
   const awardRound = (teamIndex: TeamIndex) => {
@@ -3450,6 +3629,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
         <SharedTimerHostPanel timer={room.timer} />
         <HostBuzzerPanel room={room} />
         <HostPlayPassPanel room={room} />
+        <HostFeudTurnPanel room={room} />
         <div className="strike-panel">
           <span>Strikes</span>
           <div className="strike-marks" aria-label={`${strikes} strikes`}>
@@ -3706,6 +3886,22 @@ function PresenterFeud({ state }: { state: FeudPresentation }) {
             <span>{state.decision.choice}</span>
             <strong>{controlTeam} answer the question</strong>
           </div>
+        )}
+        {state.turn.activeTeam && state.turn.currentPlayer && (
+          <section className={`presenter-turn presenter-turn--${state.turn.activeTeam}`}>
+            <div>
+              <span>Now answering</span>
+              <PlayerIdentity participant={state.turn.currentPlayer} compact />
+            </div>
+            <div>
+              <span>On deck</span>
+              {state.turn.nextPlayer ? (
+                <PlayerIdentity participant={state.turn.nextPlayer} compact />
+              ) : (
+                <strong>Waiting for teammate</strong>
+              )}
+            </div>
+          </section>
         )}
         <div className="presenter-host-cue">
           <span>Question with the host</span>

@@ -47,6 +47,11 @@ export interface FeudPresentation extends PresentationBase {
     choice: "play" | "pass" | null;
     controllingTeam: TeamId | null;
   };
+  turn: {
+    activeTeam: TeamId | null;
+    currentPlayer: { name: string; avatarId: string | null } | null;
+    nextPlayer: { name: string; avatarId: string | null } | null;
+  };
   winner: { name: string; score: number } | null;
 }
 
@@ -131,6 +136,15 @@ export function createFeudPresentation(
   const activePlayer = input.room.participants.find(
     (participant) => participant.id === input.room.playPass.activePlayerId,
   );
+  const activeTurn = input.room.feudTurns.activeTeam
+    ? input.room.feudTurns.teams[input.room.feudTurns.activeTeam]
+    : null;
+  const currentTurnPlayer = input.room.participants.find(
+    (participant) => participant.id === activeTurn?.currentPlayerId,
+  );
+  const nextTurnPlayer = input.room.participants.find(
+    (participant) => participant.id === activeTurn?.nextPlayerId,
+  );
   return {
     mode: "feud",
     code: input.room.code,
@@ -167,6 +181,15 @@ export function createFeudPresentation(
       activePlayer: activePlayer ? { name: activePlayer.name, avatarId: activePlayer.avatarId } : null,
       choice: input.room.playPass.decision,
       controllingTeam: input.room.playPass.controllingTeam,
+    },
+    turn: {
+      activeTeam: input.room.feudTurns.activeTeam,
+      currentPlayer: currentTurnPlayer
+        ? { name: currentTurnPlayer.name, avatarId: currentTurnPlayer.avatarId }
+        : null,
+      nextPlayer: nextTurnPlayer
+        ? { name: nextTurnPlayer.name, avatarId: nextTurnPlayer.avatarId }
+        : null,
     },
     winner: input.winner ? { ...input.winner } : null,
   };
