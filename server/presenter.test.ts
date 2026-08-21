@@ -34,6 +34,21 @@ const room: RoomSnapshot = {
     decision: null,
     controllingTeam: null,
   },
+  feudTurns: {
+    activeTeam: 'one',
+    teams: {
+      one: {
+        order: ['private-player-id'],
+        currentPlayerId: 'private-player-id',
+        nextPlayerId: 'private-player-id',
+      },
+      two: {
+        order: ['other-private-id'],
+        currentPlayerId: 'other-private-id',
+        nextPlayerId: 'other-private-id',
+      },
+    },
+  },
   buzzer: {
     status: 'locked',
     winner: { participantId: 'private-player-id', playerName: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' },
@@ -80,6 +95,11 @@ for (const state of [lobby, feud]) {
 assert.deepEqual(lobby.participants, [{ name: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' }, { name: 'Blake', avatarId: null, team: 'two' }])
 assert.equal(lobby.teamRevealRevision, 2)
 assert.deepEqual(feud.decision.activePlayer, { name: 'Avery', avatarId: 'contestants/rocket.webp' })
+assert.deepEqual(feud.turn, {
+  activeTeam: 'one',
+  currentPlayer: { name: 'Avery', avatarId: 'contestants/rocket.webp' },
+  nextPlayer: { name: 'Avery', avatarId: 'contestants/rocket.webp' },
+})
 assert.deepEqual(feud.buzzer.winner, { playerName: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' })
 assert.deepEqual(feud.revealed, [0])
 assert.deepEqual(feud.timer, room.timer)

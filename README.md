@@ -70,6 +70,8 @@ The moderator can start a synchronized 5-, 25-, 30-, or 40-second timer from the
 
 Before opening a room, the host can use **Build or edit** to author a question pack or upload a previously exported `.json` pack. Builder drafts save in that browser automatically; **Download JSON** creates a portable copy. The server validates and snapshots the selected pack when the room opens, so later draft edits do not change a game in progress.
 
+Each team receives a server-authoritative answering order when the game starts. After Play/Pass, normal play begins with the teammate after the controlling team's face-off representative. Correct answer reveals and the first two strikes advance the order automatically; the third strike pauses the rotation for the steal. Moderator, player, and presenter views show who is answering and who is on deck. The moderator can advance or select any connected teammate manually, and disconnected players are skipped without losing their roster position if they reconnect.
+
 The importer also accepts the alternate host format built around `rounds[].question` and `answers[].ans` / `pnt`. Those regular rounds are converted to the Wangz game-pack format and can be edited or exported normally after import. Five-question `final_round` data and its two `final_round_timers` are imported into Fast Money; `settings` and per-round `multiply` remain ignored.
 
 - Click an answer or press `1`–`8` to reveal it.
