@@ -96,9 +96,15 @@ try {
   assert.equal(JSON.stringify(isolated).includes('Check their phone'), false)
   const hostGame = latest.get(host)?.game
   assert.equal(hostGame?.kind === 'fast-money' ? Boolean(hostGame.questions[0].answerOptions?.length) : false, true)
+  const firstGame = latest.get(first)?.game
+  assert.equal(firstGame?.kind === 'fast-money'
+    ? firstGame.questions.every((question) => question.prompt === null)
+    : false, true)
+  await assert.rejects(() => fastMoney(first, { type: 'submit', answer: 'Phone' }), /only the host/i)
+  await assert.rejects(() => fastMoney(first, { type: 'pass' }), /only the host/i)
 
   for (const question of starterFeudPack.fastMoney?.questions ?? []) {
-    await fastMoney(first, { type: 'submit', answer: question.answers[0].label })
+    await fastMoney(host, { type: 'submit', answer: question.answers[0].label })
   }
   await fastMoney(host, { type: 'lock-review' })
   await fastMoney(host, { type: 'start-attempt' })
@@ -110,13 +116,18 @@ try {
   assert.equal(resumed.game?.kind, 'fast-money')
   assert.equal(resumed.game?.kind === 'fast-money' ? resumed.game.viewerRole : '', 'contestant-two')
   assert.equal(resumed.game?.kind === 'fast-money' ? resumed.game.questions[0].responses[0].text : 'leaked', null)
-  assert.equal(resumed.game?.kind === 'fast-money' ? resumed.game.questions[0].prompt : null, starterFeudPack.fastMoney?.questions[0].prompt)
+  assert.equal(resumed.game?.kind === 'fast-money' ? resumed.game.questions[0].prompt : 'leaked', null)
   assert.deepEqual(resumed.game?.kind === 'fast-money' ? resumed.game.subtotals : [], [null, null])
   assert.equal(resumed.game?.kind === 'fast-money' ? resumed.game.questions.every((question) => question.answerOptions === null) : false, true)
 
-  await assert.rejects(() => fastMoney(reconnectedSecond, { type: 'submit', answer: 'Phone' }), /repeat answer/i)
+  const hostAttemptTwo = latest.get(host)?.game
+  assert.equal(hostAttemptTwo?.kind === 'fast-money'
+    ? hostAttemptTwo.questions[0].responses[0].text
+    : null, starterFeudPack.fastMoney?.questions[0].answers[0].label)
+  await assert.rejects(() => fastMoney(reconnectedSecond, { type: 'submit', answer: 'Phone' }), /only the host/i)
+  await assert.rejects(() => fastMoney(host, { type: 'submit', answer: 'Phone' }), /repeat answer/i)
   for (const question of starterFeudPack.fastMoney?.questions ?? []) {
-    await fastMoney(reconnectedSecond, { type: 'submit', answer: question.answers[1].label })
+    await fastMoney(host, { type: 'submit', answer: question.answers[1].label })
   }
   await assert.rejects(() => fastMoney(opponent, { type: 'lock-review' }), /only the host/i)
   await fastMoney(host, { type: 'lock-review' })
@@ -130,7 +141,7 @@ try {
   assert.equal(opponentReveal?.kind === 'fast-money' ? opponentReveal.questions[1].responses[0].text : 'leaked', null)
 
   reconnectedSecond.disconnect()
-  console.log('Fast Money socket authorization, contestant-two reconnect, answer redaction, and staged reveal passed.')
+  console.log('Fast Money host-only transcription, contestant-two reconnect, answer redaction, and staged reveal passed.')
 } finally {
   host.disconnect()
   first.disconnect()

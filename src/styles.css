@@ -992,6 +992,11 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 .fast-money-answer-console { padding: 26px; color: var(--ink); background: var(--fm-paper); border-top: 7px solid var(--fm-gold); }
 .fast-money-answer-console__status { display: flex; justify-content: space-between; gap: 15px; color: #506075; font-size: 9px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
 .fast-money-answer-console h2 { min-height: 72px; margin: 20px 0; font-size: clamp(25px, 3vw, 39px); line-height: 1.08; }
+.fast-money-repeat-reference { display: grid; gap: 5px; margin: -5px 0 18px; padding: 13px 15px; color: var(--fm-paper); background: var(--fm-night); border-left: 6px solid var(--fm-coral); }
+.fast-money-repeat-reference span, .fast-money-repeat-reference small { font-size: 8px; font-weight: 900; letter-spacing: .11em; text-transform: uppercase; }
+.fast-money-repeat-reference span { color: var(--fm-gold); }
+.fast-money-repeat-reference strong { overflow: hidden; font-family: var(--display); font-size: 25px; letter-spacing: .03em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.fast-money-repeat-reference small { color: #b8c4d6; line-height: 1.4; }
 .fast-money-answer-console form { display: grid; grid-template-columns: 1fr auto auto; gap: 9px; }
 .fast-money-answer-console form label { grid-column: 1 / -1; font-size: 9px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; }
 .fast-money-answer-console input { min-width: 0; padding: 15px; border: 2px solid var(--ink); font-size: 20px; }
@@ -1047,7 +1052,7 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 .fast-money-outcome--short { color: var(--fm-paper); background: var(--fm-coral); }
 .fast-money-reveal-button { width: min(420px, 100%); margin: 25px 0 0 auto; }
 
-.fast-money-player-vote, .fast-money-player-waiting, .fast-money-isolation, .fast-money-player-active { min-height: 610px; }
+.fast-money-player-vote, .fast-money-player-waiting, .fast-money-isolation, .fast-money-player-active, .fast-money-player-verbal { min-height: 610px; }
 .fast-money-player-vote { padding: 20px 0 50px; text-align: center; }
 .fast-money-player-vote > p { color: var(--muted); }
 .fast-money-player-vote > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; margin: 30px 0 20px; }
@@ -1063,6 +1068,12 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 .fast-money-player-active { display: grid; grid-template-columns: 185px 1fr; align-content: center; gap: 15px; }
 .fast-money-player-active .fast-money-clock { min-height: 260px; }
 .fast-money-player-active .fast-money-answer-console { align-self: stretch; }
+.fast-money-player-verbal { display: grid; grid-template-columns: 210px 1fr; align-content: center; gap: 28px; }
+.fast-money-player-verbal > div { align-self: center; }
+.fast-money-player-verbal h1 { margin: 7px 0 20px; font-family: var(--display); font-size: clamp(48px, 7vw, 86px); line-height: .82; letter-spacing: -.02em; text-transform: uppercase; }
+.fast-money-player-verbal h1 em { color: var(--fm-coral); font-style: normal; }
+.fast-money-player-verbal > div > p:not(.eyebrow) { max-width: 640px; color: var(--muted); font-size: 17px; line-height: 1.55; }
+.fast-money-player-verbal > div > strong { display: inline-block; margin-top: 7px; padding: 10px 13px; color: var(--fm-night); background: var(--fm-gold); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; }
 
 .fast-money-shell--presenter { overflow: hidden; }
 .fast-money-presenter-stage { padding: 24px 30px 55px; }
@@ -1351,9 +1362,11 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
   .fast-money-contestant { min-height: 185px; padding: 20px 8px 13px; }
   .fast-money-contestant .fast-money-portrait { width: 56px; height: 56px; }
   .fast-money-contestant > strong { font-size: 18px; }
-  .fast-money-active-layout, .fast-money-player-active { grid-template-columns: 1fr; padding-block: 25px 55px; }
-  .fast-money-clock, .fast-money-player-active .fast-money-clock { display: flex; align-items: baseline; justify-content: center; gap: 8px; min-height: 90px; padding: 13px; }
+  .fast-money-active-layout, .fast-money-player-active, .fast-money-player-verbal { grid-template-columns: 1fr; padding-block: 25px 55px; }
+  .fast-money-clock, .fast-money-player-active .fast-money-clock, .fast-money-player-verbal .fast-money-clock { display: flex; align-items: baseline; justify-content: center; gap: 8px; min-height: 90px; padding: 13px; }
   .fast-money-clock strong { font-size: 68px; }
+  .fast-money-player-verbal { align-content: start; gap: 25px; text-align: center; }
+  .fast-money-player-verbal h1 { font-size: 58px; }
   .fast-money-answer-console { padding: 17px; }
   .fast-money-answer-console h2 { min-height: 0; font-size: 24px; }
   .fast-money-answer-console form { grid-template-columns: 1fr 1fr; }

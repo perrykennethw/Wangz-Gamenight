@@ -138,10 +138,6 @@ function validateLineup(
   return null
 }
 
-function canAnswer(state: FastMoneyState, actor: FastMoneyActor, contestant: 0 | 1): boolean {
-  return actor.role === 'host' || actor.participantId === state.lineup[contestant]
-}
-
 export function createFastMoneyState(eligibleTeam: TeamId): FastMoneyState {
   return {
     kind: 'fast-money',
@@ -246,13 +242,11 @@ export function applyFastMoneyCommand(
   }
 
   if (command.type === 'submit' || command.type === 'pass') {
+    const hostIssue = requireHost(actor)
+    if (hostIssue) return { ok: false, error: 'Only the host can submit or pass Fast Money answers.' }
     const contestant = activeContestant(next.phase)
     if (contestant === null || next.phase !== activePhase(contestant)) {
       return { ok: false, error: 'There is no active Fast Money question.' }
-    }
-    if (!canAnswer(next, actor, contestant)) return { ok: false, error: 'Only the active contestant or host can answer.' }
-    if (actor.role === 'player' && next.timer.status !== 'running') {
-      return { ok: false, error: 'Wait for the host to resume the clock.' }
     }
     const questionIndex = next.attempts[contestant].queue[0]
     if (questionIndex === undefined) return { ok: false, error: 'There are no questions left in this attempt.' }
@@ -428,11 +422,6 @@ export function viewFastMoney(
     ? null
     : state.attempts[currentContestant].queue[0] ?? null
   const publicReveal = state.phase === 'reveal' || state.phase === 'complete'
-  const isOwnActiveAttempt = (contestant: 0 | 1) => (
-    viewerRole === `contestant-${contestant === 0 ? 'one' : 'two'}`
-    && currentContestant === contestant
-    && state.phase === activePhase(contestant)
-  )
   const isIsolated = viewerRole === 'contestant-two' && (
     state.phase === 'ready-one'
     || state.phase === 'active-one'
@@ -449,11 +438,9 @@ export function viewFastMoney(
 
   const questions = pack.questions.map((question, questionIndex) => {
     const revealed = publicReveal && questionIndex <= state.revealIndex
-    const canSeePrompt = actor.role === 'host'
-      || revealed
-      || (currentQuestionIndex === questionIndex && currentContestant !== null && isOwnActiveAttempt(currentContestant))
-    const canSeeFirst = actor.role === 'host' || revealed || isOwnActiveAttempt(0)
-    const canSeeSecond = actor.role === 'host' || revealed || isOwnActiveAttempt(1)
+    const canSeePrompt = actor.role === 'host' || revealed
+    const canSeeFirst = actor.role === 'host' || revealed
+    const canSeeSecond = actor.role === 'host' || revealed
     return {
       id: question.id,
       prompt: canSeePrompt ? question.prompt : null,
