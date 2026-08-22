@@ -103,7 +103,7 @@ export const starterFeudPack: FeudGamePack = {
     },
   ],
   fastMoney: {
-    timers: { first: 20, second: 25 },
+    timers: { first: 35, second: 40 },
     questions: [
       {
         id: "fm-morning-first",

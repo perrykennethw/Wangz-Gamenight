@@ -174,6 +174,7 @@ export type FastMoneyPhase =
   | "ready-one"
   | "active-one"
   | "review-one"
+  | "reveal-one"
   | "ready-two"
   | "active-two"
   | "review-two"
@@ -227,6 +228,7 @@ export interface FastMoneyView {
   currentQuestionIndex: number | null;
   questions: FastMoneyQuestionView[];
   answeredCount: number;
+  attemptDurations: [number, number];
   timer: FastMoneyTimerView;
   subtotals: [number | null, number | null];
   combinedScore: number;
@@ -293,7 +295,9 @@ export type FastMoneyCommand =
   | { type: "pause-timer" }
   | { type: "resume-timer" }
   | { type: "add-time" }
-  | { type: "reveal-next" };
+  | { type: "reveal-next" }
+  | { type: "finish-first-reveal" }
+  | { type: "skip-first-reveal" };
 
 export interface ClientToServerEvents {
   "room:create": (

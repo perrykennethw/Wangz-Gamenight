@@ -133,6 +133,7 @@ const fastMoneyGame: FastMoneyView = {
     revealed: index === 0,
   })),
   answeredCount: 0,
+  attemptDurations: [35, 40],
   timer: { status: 'idle', durationSeconds: 0, deadline: null, remainingMs: 0 },
   subtotals: [145, 99],
   combinedScore: 244,
@@ -154,5 +155,25 @@ assert.equal(serializedFastMoney.includes('answerOptions'), true)
 assert.equal(fastMoney.game.questions.every((question) => question.answerOptions === null), true)
 assert.deepEqual(fastMoney.game.subtotals, [null, null])
 assert.equal(fastMoney.game.combinedScore, config.pack.fastMoney!.questions[0].answers[0].points + config.pack.fastMoney!.questions[0].answers[1].points)
+
+const firstRevealGame: FastMoneyView = {
+  ...fastMoneyGame,
+  phase: 'reveal-one',
+  questions: fastMoneyGame.questions.map((question) => ({
+    ...question,
+    responses: [question.responses[0], { text: null, answerId: null, points: null, repeated: false }],
+    revealed: true,
+  })),
+  subtotals: [145, 0],
+  combinedScore: 145,
+  revealIndex: 4,
+  message: 'Let’s see how contestant one scored.',
+}
+const firstReveal = createFastMoneyPresentation({ ...room, game: firstRevealGame })
+assert.ok(firstReveal)
+assert.equal(firstReveal.game.questions.every((question) => question.responses[0].text !== null), true)
+assert.equal(firstReveal.game.questions.every((question) => question.responses[1].text === null), true)
+assert.deepEqual(firstReveal.game.subtotals, [145, null])
+assert.equal(firstReveal.game.combinedScore, firstReveal.game.questions.reduce((total, question) => total + (question.responses[0].points ?? 0), 0))
 
 console.log('Presenter state includes public boards while excluding hidden Fast Money answers, moderator chats, votes, and private participant IDs.')

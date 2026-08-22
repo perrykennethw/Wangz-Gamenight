@@ -25,9 +25,11 @@ function MoneyPortrait({ person }: { person: Pick<FastMoneyContestantView, "name
 function ContestantCard({
   person,
   order,
+  durationSeconds,
 }: {
   person: FastMoneyContestantView | null;
   order: 1 | 2;
+  durationSeconds: number;
 }) {
   return (
     <article className={`fast-money-contestant fast-money-contestant--${order}`}>
@@ -36,7 +38,7 @@ function ContestantCard({
         <>
           <MoneyPortrait person={person} />
           <strong>{person.name}</strong>
-          <small>{order === 1 ? "20 seconds" : "25 seconds"}</small>
+          <small>{durationSeconds} seconds</small>
         </>
       ) : (
         <><i>?</i><strong>To be chosen</strong></>
@@ -110,6 +112,12 @@ export function FastMoneyBoard({ game }: { game: FastMoneyView }) {
           </article>
         ))}
       </div>
+      {game.phase === "reveal-one" && game.revealIndex === 4 && game.subtotals[0] !== null && (
+        <div className="fast-money-first-subtotal" role="status">
+          <span>Contestant 1 subtotal</span>
+          <strong>{game.subtotals[0]} points</strong>
+        </div>
+      )}
       {(game.phase === "complete") && (
         <div className={`fast-money-outcome fast-money-outcome--${game.outcome}`} role="status">
           <span>{game.outcome === "win" ? "Goal cleared" : "Final total"}</span>
@@ -300,7 +308,7 @@ function HostSelection({ room, game }: { room: RoomSnapshot; game: FastMoneyView
       <div className="fast-money-order-controls">
         {([0, 1] as const).map((index) => (
           <label key={index}>
-            <span>Contestant {index + 1} · {index === 0 ? "20 sec" : "25 sec"}</span>
+            <span>Contestant {index + 1} · {game.attemptDurations[index]} sec</span>
             <select
               value={lineup[index]}
               onChange={(event) => setLineup((current) => {
@@ -364,9 +372,9 @@ function HostReady({ game, room }: { game: FastMoneyView; room: RoomSnapshot }) 
     <section className="fast-money-ready">
       <p className="eyebrow">Contestant {contestant + 1} ready</p>
       <div className="fast-money-lineup">
-        <ContestantCard person={game.contestants[0]} order={1} />
+        <ContestantCard person={game.contestants[0]} order={1} durationSeconds={game.attemptDurations[0]} />
         <span>+</span>
-        <ContestantCard person={game.contestants[1]} order={2} />
+        <ContestantCard person={game.contestants[1]} order={2} durationSeconds={game.attemptDurations[1]} />
       </div>
       <h1>{game.contestants[contestant]?.name ?? "Contestant"}, the clock is yours.</h1>
       <p>{contestant === 1 ? "First answers are sealed. Repeats will buzz immediately." : "Five questions. Pass when you need to; we’ll circle back."}</p>
@@ -383,7 +391,7 @@ function HostReady({ game, room }: { game: FastMoneyView; room: RoomSnapshot }) 
           >Replace contestant {contestant + 1}</button>
         </div>
       </details>
-      <button className="primary-button" disabled={busy} onClick={() => void start()}>Start {contestant === 0 ? "20" : "25"}-second clock</button>
+      <button className="primary-button" disabled={busy} onClick={() => void start()}>Start {game.attemptDurations[contestant]}-second clock</button>
       {error && <p className="fast-money-error" role="alert">{error}</p>}
     </section>
   );
@@ -434,10 +442,45 @@ function HostReview({ game }: { game: FastMoneyView }) {
         {game.questions.map((_, index) => <ReviewRow game={game} contestant={contestant} questionIndex={index} key={index} />)}
       </div>
       <button className="primary-button" disabled={busy} onClick={() => void lock()}>
-        {contestant === 0 ? "Seal answers and call contestant 2" : "Lock scores and open the reveal"}
+        {contestant === 0 ? "Lock scores and open contestant 1 reveal" : "Lock scores and open the final reveal"}
       </button>
       {error && <p className="fast-money-error" role="alert">{error}</p>}
     </section>
+  );
+}
+
+function HostFirstReveal({ game }: { game: FastMoneyView }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const run = async (command: FastMoneyCommand) => {
+    setBusy(true);
+    setError("");
+    try { await roomClient.fastMoneyAction(command); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "That reveal control did not register."); }
+    finally { setBusy(false); }
+  };
+  const revealComplete = game.revealIndex === 4;
+  return (
+    <div className="fast-money-reveal-layout">
+      <FastMoneyBoard game={game} />
+      <div className="fast-money-between-controls">
+        {revealComplete ? (
+          <button className="primary-button" disabled={busy} onClick={() => void run({ type: "finish-first-reveal" })}>
+            Call contestant 2
+          </button>
+        ) : (
+          <button className="primary-button" disabled={busy} onClick={() => void run({ type: "reveal-next" })}>
+            Reveal question {game.revealIndex + 2} of 5
+          </button>
+        )}
+        {!revealComplete && (
+          <button className="secondary-button" disabled={busy} onClick={() => void run({ type: "skip-first-reveal" })}>
+            Skip reveal and call contestant 2
+          </button>
+        )}
+      </div>
+      {error && <p className="fast-money-error" role="alert">{error}</p>}
+    </div>
   );
 }
 
@@ -472,6 +515,7 @@ export function FastMoneyHost({ room }: { room: RoomSnapshot }) {
   if (game.phase === "ready-one" || game.phase === "ready-two") return <HostReady game={game} room={room} />;
   if (game.phase === "active-one" || game.phase === "active-two") return <HostActive game={game} />;
   if (game.phase === "review-one" || game.phase === "review-two") return <HostReview game={game} />;
+  if (game.phase === "reveal-one") return <HostFirstReveal game={game} />;
   return (
     <div className="fast-money-reveal-layout">
       <FastMoneyBoard game={game} />
@@ -531,9 +575,9 @@ function PlayerWaiting({ game }: { game: FastMoneyView }) {
     <section className="fast-money-player-waiting">
       <p className="eyebrow">Fast Money</p>
       <div className="fast-money-lineup">
-        <ContestantCard person={game.contestants[0]} order={1} />
+        <ContestantCard person={game.contestants[0]} order={1} durationSeconds={game.attemptDurations[0]} />
         <span>+</span>
-        <ContestantCard person={game.contestants[1]} order={2} />
+        <ContestantCard person={game.contestants[1]} order={2} durationSeconds={game.attemptDurations[1]} />
       </div>
       <h1>{game.message}</h1>
       {game.timer.status !== "idle" && <FastMoneyClock timer={game.timer} />}
@@ -564,7 +608,7 @@ export function FastMoneyPlayer({ room }: { room: RoomSnapshot }) {
       <section className="fast-money-isolation">
         <p className="eyebrow">Contestant 2 · private holding screen</p>
         <h1>Answers are<br /><em>sealed.</em></h1>
-        <p>Keep this screen open and stay away from the presenter. The host will call you when the 25-second clock is ready.</p>
+        <p>Keep this screen open and stay away from the presenter. The host will call you when the {game.attemptDurations[1]}-second clock is ready.</p>
       </section>
     );
   }
@@ -573,6 +617,6 @@ export function FastMoneyPlayer({ room }: { room: RoomSnapshot }) {
   if (activeForViewer) {
     return <PlayerVerbalAttempt game={game} />;
   }
-  if (game.phase === "reveal" || game.phase === "complete") return <FastMoneyBoard game={game} />;
+  if (game.phase === "reveal-one" || game.phase === "reveal" || game.phase === "complete") return <FastMoneyBoard game={game} />;
   return <PlayerWaiting game={game} />;
 }

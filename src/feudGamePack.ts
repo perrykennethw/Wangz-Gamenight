@@ -4,7 +4,7 @@ export const MAX_GAME_PACK_BYTES = 256 * 1024
 export const MAX_FEUD_QUESTIONS = 30
 export const MAX_FEUD_ANSWERS = 8
 export const FAST_MONEY_QUESTION_COUNT = 5
-export const DEFAULT_FAST_MONEY_TIMERS = { first: 20, second: 25 } as const
+export const DEFAULT_FAST_MONEY_TIMERS = { first: 35, second: 40 } as const
 
 export class GamePackError extends Error {
   readonly issues: string[]

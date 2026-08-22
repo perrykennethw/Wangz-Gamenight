@@ -1046,11 +1046,16 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 .fast-money-ledger article > div > strong { display: grid; place-items: center; align-self: stretch; min-width: 58px; margin-left: 10px; color: var(--fm-paper); background: var(--fm-night); font-family: var(--display); font-size: 28px; }
 .fast-money-ledger article > div.is-repeat { color: var(--fm-paper); background: var(--fm-coral); }
 .fast-money-blank { grid-column: 1 / -1; color: #9ea7b2; font-size: 25px; text-align: center; }
+.fast-money-first-subtotal { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-top: 20px; padding: 15px 20px; color: var(--fm-night); background: var(--fm-gold); text-transform: uppercase; }
+.fast-money-first-subtotal span { font-size: 9px; font-weight: 900; letter-spacing: .14em; }
+.fast-money-first-subtotal strong { font-family: var(--display); font-size: clamp(27px, 4vw, 43px); }
 .fast-money-outcome { margin-top: 20px; padding: 16px 20px; color: var(--fm-night); background: var(--fm-gold); text-align: center; }
 .fast-money-outcome span { display: block; font-size: 9px; font-weight: 900; letter-spacing: .15em; text-transform: uppercase; }
 .fast-money-outcome strong { display: block; margin-top: 4px; font-family: var(--display); font-size: clamp(26px, 4vw, 46px); text-transform: uppercase; }
 .fast-money-outcome--short { color: var(--fm-paper); background: var(--fm-coral); }
 .fast-money-reveal-button { width: min(420px, 100%); margin: 25px 0 0 auto; }
+.fast-money-between-controls { display: flex; justify-content: flex-end; gap: 10px; margin: 25px 0 0 auto; }
+.fast-money-between-controls button { width: min(360px, 100%); }
 
 .fast-money-player-vote, .fast-money-player-waiting, .fast-money-isolation, .fast-money-player-active, .fast-money-player-verbal { min-height: 610px; }
 .fast-money-player-vote { padding: 20px 0 50px; text-align: center; }
@@ -1388,6 +1393,9 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
   .fast-money-ledger article > div { display: flex; padding-left: 7px; border-left-width: 3px; }
   .fast-money-ledger article > div > span { font-size: 10px; }
   .fast-money-ledger article > div > strong { min-width: 34px; margin-left: auto; font-size: 20px; }
+  .fast-money-first-subtotal { align-items: flex-start; flex-direction: column; }
+  .fast-money-between-controls { align-items: stretch; flex-direction: column; }
+  .fast-money-between-controls button { width: 100%; }
   .fast-money-player-vote > div { grid-template-columns: 1fr 1fr; }
   .fast-money-player-vote > div button { min-height: 145px; padding: 12px; }
   .fast-money-player-vote .fast-money-portrait { width: 54px; height: 54px; }

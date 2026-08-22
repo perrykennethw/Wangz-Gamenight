@@ -96,6 +96,7 @@ try {
   assert.equal(JSON.stringify(isolated).includes('Check their phone'), false)
   const hostGame = latest.get(host)?.game
   assert.equal(hostGame?.kind === 'fast-money' ? Boolean(hostGame.questions[0].answerOptions?.length) : false, true)
+  assert.deepEqual(hostGame?.kind === 'fast-money' ? hostGame.attemptDurations : [], [35, 40])
   const firstGame = latest.get(first)?.game
   assert.equal(firstGame?.kind === 'fast-money'
     ? firstGame.questions.every((question) => question.prompt === null)
@@ -107,7 +108,13 @@ try {
     await fastMoney(host, { type: 'submit', answer: question.answers[0].label })
   }
   await fastMoney(host, { type: 'lock-review' })
-  await fastMoney(host, { type: 'start-attempt' })
+  await assert.rejects(() => fastMoney(host, { type: 'start-attempt' }), /not ready/i)
+  await fastMoney(host, { type: 'reveal-next' })
+  await new Promise((resolve) => setTimeout(resolve, 30))
+
+  const opponentFirstReveal = latest.get(opponent)?.game
+  assert.equal(opponentFirstReveal?.kind === 'fast-money' ? opponentFirstReveal.questions[0].responses[0].text : null, starterFeudPack.fastMoney?.questions[0].answers[0].label)
+  assert.equal(opponentFirstReveal?.kind === 'fast-money' ? opponentFirstReveal.questions[0].responses[1].text : 'leaked', null)
 
   second.disconnect()
   const reconnectedSecond = await connect()
@@ -115,10 +122,24 @@ try {
   const resumed = await joinRoom(reconnectedSecond, room.code, 'Blake', 'fast-money-blake-12345')
   assert.equal(resumed.game?.kind, 'fast-money')
   assert.equal(resumed.game?.kind === 'fast-money' ? resumed.game.viewerRole : '', 'contestant-two')
+  assert.equal(resumed.game?.kind === 'fast-money' ? resumed.game.phase : '', 'reveal-one')
+  assert.equal(resumed.game?.kind === 'fast-money' ? resumed.game.isIsolated : false, true)
   assert.equal(resumed.game?.kind === 'fast-money' ? resumed.game.questions[0].responses[0].text : 'leaked', null)
   assert.equal(resumed.game?.kind === 'fast-money' ? resumed.game.questions[0].prompt : 'leaked', null)
   assert.deepEqual(resumed.game?.kind === 'fast-money' ? resumed.game.subtotals : [], [null, null])
   assert.equal(resumed.game?.kind === 'fast-money' ? resumed.game.questions.every((question) => question.answerOptions === null) : false, true)
+
+  for (let index = 1; index < 5; index += 1) await fastMoney(host, { type: 'reveal-next' })
+  await new Promise((resolve) => setTimeout(resolve, 30))
+  const completedFirstReveal = latest.get(opponent)?.game
+  assert.equal(completedFirstReveal?.kind === 'fast-money' ? completedFirstReveal.questions.every((question) => question.revealed) : false, true)
+  assert.notEqual(completedFirstReveal?.kind === 'fast-money' ? completedFirstReveal.subtotals[0] : null, null)
+  const stillIsolated = latest.get(reconnectedSecond)?.game
+  assert.equal(stillIsolated?.kind === 'fast-money' ? stillIsolated.questions.every((question) => question.responses[0].text === null) : false, true)
+
+  await fastMoney(host, { type: 'finish-first-reveal' })
+  await fastMoney(host, { type: 'start-attempt' })
+  await new Promise((resolve) => setTimeout(resolve, 30))
 
   const hostAttemptTwo = latest.get(host)?.game
   assert.equal(hostAttemptTwo?.kind === 'fast-money'
@@ -141,7 +162,7 @@ try {
   assert.equal(opponentReveal?.kind === 'fast-money' ? opponentReveal.questions[1].responses[0].text : 'leaked', null)
 
   reconnectedSecond.disconnect()
-  console.log('Fast Money host-only transcription, contestant-two reconnect, answer redaction, and staged reveal passed.')
+  console.log('Fast Money 35/40 timers, between-attempt reveal, reconnect isolation, and staged final reveal passed.')
 } finally {
   host.disconnect()
   first.disconnect()
