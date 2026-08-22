@@ -10,7 +10,13 @@ import {
 } from "./avatarCatalog";
 import { FeudGameBuilder, saveFeudGamePackDraft } from "./FeudGameBuilder";
 import { GamePackError, parseFeudGamePack } from "./feudGamePack";
-import { gameAudio, type GameAudioCue, type GameAudioState } from "./gameAudio";
+import {
+  GAME_AUDIO_CUE_LABELS,
+  gameAudio,
+  type GameAudioCue,
+  type GameAudioPackChoice,
+  type GameAudioState,
+} from "./gameAudio";
 import { multiplierForRound, starterFeudPack } from "./gameData";
 import { FastMoneyBoard, FastMoneyClock, FastMoneyHost, FastMoneyPlayer } from "./FastMoney";
 import {
@@ -182,11 +188,15 @@ function Brand({ compact = false }: BrandProps) {
   );
 }
 
-const audioCueLabels: Record<GameAudioCue, string> = {
-  opening: "Opening theme",
-  wrong: "Wrong answer",
-  repeat: "Repeat answer",
-};
+const manualAudioCues: GameAudioCue[] = [
+  "opening",
+  "answer-reveal",
+  "wrong-answer",
+  "repeat-answer",
+];
+
+const alternateAudioPackUrl = (import.meta.env.VITE_GAME_AUDIO_PACK_URL ?? "").trim();
+if (alternateAudioPackUrl) void gameAudio.configureAlternatePack(alternateAudioPackUrl);
 
 function useGameAudioState(): GameAudioState {
   const [state, setState] = useState<GameAudioState>(() => gameAudio.getState());
@@ -200,7 +210,7 @@ function GameAudioControls() {
   const status = muted
     ? "Muted"
     : audio.playingCue
-      ? `Playing ${audioCueLabels[audio.playingCue].toLowerCase()}`
+      ? `Playing ${GAME_AUDIO_CUE_LABELS[audio.playingCue].toLowerCase()}`
       : "Ready";
 
   return (
@@ -223,6 +233,20 @@ function GameAudioControls() {
       >
         {audio.enabled ? "Disable audio" : "Enable audio"}
       </button>
+      <label className="game-audio-panel__pack">
+        <span>Sound pack</span>
+        <select
+          value={audio.selectedPack}
+          onChange={(event) => gameAudio.setPack(event.target.value as GameAudioPackChoice)}
+          aria-label="Game audio sound pack"
+        >
+          <option value="original">Original</option>
+          {audio.alternatePackStatus === "ready" && (
+            <option value="alternate">{audio.alternatePackName}</option>
+          )}
+        </select>
+        {audio.alternatePackStatus === "loading" && <small>Loading configured pack…</small>}
+      </label>
       <label className="game-audio-panel__volume">
         <span>Volume</span>
         <input
@@ -237,7 +261,7 @@ function GameAudioControls() {
         <b>{Math.round(audio.volume * 100)}%</b>
       </label>
       <div className="game-audio-panel__cues" aria-label="Replay audio cues">
-        {(Object.keys(audioCueLabels) as GameAudioCue[]).map((cue) => (
+        {manualAudioCues.map((cue) => (
           <button
             type="button"
             key={cue}
@@ -245,7 +269,7 @@ function GameAudioControls() {
             aria-pressed={audio.playingCue === cue}
             onClick={() => void gameAudio.play(cue)}
           >
-            <span aria-hidden="true">▶</span> {audioCueLabels[cue]}
+            <span aria-hidden="true">▶</span> {GAME_AUDIO_CUE_LABELS[cue]}
           </button>
         ))}
         {audio.playingCue && (
@@ -326,6 +350,23 @@ function SharedTimerAudience({
 function SharedTimerHostPanel({ timer }: { timer: SharedTimerState }) {
   const [updating, setUpdating] = useState<SharedTimerPreset | "stop" | null>(null);
   const [error, setError] = useState("");
+  const seconds = useSharedTimerSeconds(timer);
+  const timerAudio = useRef({ deadline: null as number | null, warned: false, expired: false });
+
+  useEffect(() => {
+    if (timer.deadline !== timerAudio.current.deadline) {
+      timerAudio.current = { deadline: timer.deadline, warned: false, expired: false };
+    }
+    if (timer.status === "idle") return;
+    if (seconds > 0 && seconds <= 5 && !timerAudio.current.warned) {
+      timerAudio.current.warned = true;
+      void gameAudio.play("timer-warning");
+    }
+    if ((timer.status === "expired" || seconds === 0) && !timerAudio.current.expired) {
+      timerAudio.current.expired = true;
+      void gameAudio.play("timer-expired");
+    }
+  }, [seconds, timer.deadline, timer.status]);
 
   const start = async (durationSeconds: SharedTimerPreset) => {
     setError("");
@@ -3437,8 +3478,17 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
   const [fastMoneyError, setFastMoneyError] = useState("");
 
   useEffect(() => roomClient.subscribeFastMoneyRepeat(() => {
-    void gameAudio.play("repeat");
+    void gameAudio.play("repeat-answer");
   }), []);
+
+  const buzzerWinnerId = room.buzzer.winner?.participantId ?? null;
+  const previousBuzzerWinner = useRef<string | null>(null);
+  useEffect(() => {
+    if (buzzerWinnerId && buzzerWinnerId !== previousBuzzerWinner.current) {
+      void gameAudio.play("faceoff-buzz");
+    }
+    previousBuzzerWinner.current = buzzerWinnerId;
+  }, [buzzerWinnerId]);
 
   const question =
     config.pack.questions[questionIndex % config.pack.questions.length];
@@ -3483,9 +3533,10 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
 
   const revealAnswer = (index: number) => {
     if (revealed.includes(index)) {
-      void gameAudio.play("repeat");
+      void gameAudio.play("repeat-answer");
       return;
     }
+    void gameAudio.play("answer-reveal");
     setRevealed((current) =>
       current.includes(index) ? current : [...current, index],
     );
@@ -3495,7 +3546,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
   };
 
   const addStrike = () => {
-    void gameAudio.play("wrong");
+    void gameAudio.play("wrong-answer");
     setStrikes((current) => Math.min(3, current + 1));
     if (room.feudTurns.activeTeam && strikes < 2) {
       void roomClient.advanceFeudTurn().catch(() => undefined);
@@ -3509,6 +3560,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
     nextScores[teamIndex] += roundPot;
     setScores(nextScores);
     if (nextScores[teamIndex] >= config.winningScore) {
+      void gameAudio.play("game-win");
       setWinner({
         name: teamIndex === 0 ? config.teamOne : config.teamTwo,
         score: nextScores[teamIndex],
@@ -3516,6 +3568,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
       });
       return;
     }
+    void gameAudio.play("round-win");
     setRound((current) => current + 1);
     setQuestionIndex((current) => (current + 1) % config.pack.questions.length);
     setRevealed([]);

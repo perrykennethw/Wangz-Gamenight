@@ -33,6 +33,7 @@ jobs:
       VITE_AVATAR_BASE_URL: ${{ vars.VITE_AVATAR_BASE_URL || secrets.VITE_AVATAR_BASE_URL }}
       VITE_AVATAR_KEYS: ${{ vars.VITE_AVATAR_KEYS || secrets.VITE_AVATAR_KEYS }}
       VITE_PUBLIC_APP_URL: ${{ vars.VITE_PUBLIC_APP_URL || secrets.VITE_PUBLIC_APP_URL }}
+      VITE_GAME_AUDIO_PACK_URL: ${{ vars.VITE_GAME_AUDIO_PACK_URL || secrets.VITE_GAME_AUDIO_PACK_URL }}
 
     steps:
       - name: Check out repository
@@ -146,6 +147,7 @@ jobs:
             --build-arg VITE_AVATAR_BASE_URL="$VITE_AVATAR_BASE_URL" \
             --build-arg VITE_AVATAR_KEYS="$VITE_AVATAR_KEYS" \
             --build-arg VITE_PUBLIC_APP_URL="$VITE_PUBLIC_APP_URL" \
+            --build-arg VITE_GAME_AUDIO_PACK_URL="$VITE_GAME_AUDIO_PACK_URL" \
             --tag "$image" .
           docker push "$image"
           echo "uri=$image" >> "$GITHUB_OUTPUT"

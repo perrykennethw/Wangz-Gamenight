@@ -58,9 +58,9 @@ For production, create GitHub Actions repository variables with the same two nam
 
 ## Game audio cues
 
-Game audio is host-side and disabled by default. The host can enable it, set one master volume, stop playback, and manually replay the opening, wrong-answer, or repeat-answer cue. Starting a game plays the opening cue when audio is enabled; adding a Family Feud strike plays the wrong-answer cue; selecting an already revealed answer plays the repeat-answer cue. Starting another cue stops the current cue first so rapid host actions do not stack sounds.
+Game audio is host-side and disabled by default. The host can enable it, select an available sound pack, set one master volume, stop playback, and manually replay the primary cues. Stable cue IDs cover the opening, face-off, answer reveal, wrong/repeat answers, timer, round/game wins, and Fast Money. Starting another cue stops the current cue first so rapid host actions do not stack sounds.
 
-All shipped cues are original procedural tones synthesized at runtime by the Web Audio implementation in `src/gameAudio.ts`. The project does not ship or redistribute third-party audio recordings, so these cues require no external media license or attribution. If recorded replacements are added later, document their source, permission, and license here before release.
+All shipped cues are original procedural tones synthesized at runtime by the Web Audio implementation in `src/gameAudio.ts`. The project does not ship or redistribute third-party recordings. A deployment may set the optional `VITE_GAME_AUDIO_PACK_URL` build variable to an approved version-1 JSON manifest; after it loads, the host can switch between that pack and **Original**. Missing or failed recordings fall back to the matching original cue. See [Configuring an audio pack](docs/audio-packs.md) for the manifest format, rights checklist, hosting/CORS requirements, and deployment steps.
 
 ## Shared answer timer
 
