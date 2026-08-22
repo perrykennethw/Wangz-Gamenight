@@ -1672,12 +1672,22 @@ function HostPlayPassPanel({ room }: { room: RoomSnapshot }) {
   const activePlayer = room.participants.find(
     (participant) => participant.id === room.playPass.activePlayerId,
   );
-  const run = async (action: "open" | "end") => {
+  const representatives = Object.fromEntries(
+    (["one", "two"] as TeamId[]).map((team) => [
+      team,
+      room.participants.find(
+        (participant) =>
+          participant.id === room.buzzer.representatives[team] &&
+          participant.team === team,
+      ),
+    ]),
+  ) as Record<TeamId, Participant | undefined>;
+  const run = async (action: "open" | "end", team?: TeamId) => {
     setBusy(true);
     setError("");
     try {
-      if (action === "open") {
-        await roomClient.openPlayPass();
+      if (action === "open" && team) {
+        await roomClient.openPlayPass(team);
       } else {
         await roomClient.endFeudQuestion();
       }
@@ -1700,18 +1710,43 @@ function HostPlayPassPanel({ room }: { room: RoomSnapshot }) {
         <span>After the face-off</span>
         <strong>
           {room.playPass.status === "closed"
-            ? "Play / Pass"
+            ? winner
+              ? "Who won the face-off?"
+              : "Play / Pass"
             : room.playPass.status === "open"
-              ? `${activePlayer?.name ?? "Active player"} decides`
+              ? `${teamName(room, room.playPass.team ?? "one")} poll · ${activePlayer?.name ?? "Active player"} decides`
               : `${room.playPass.decision === "play" ? "Play" : "Pass"} · ${teamName(room, room.playPass.controllingTeam ?? "one")} answers`}
         </strong>
+        {room.playPass.status === "closed" && (
+          <small>
+            {winner
+              ? "Choose the team that won the face-off. The first buzz stays recorded above."
+              : "Finish the face-off, then choose which team gets the poll."}
+          </small>
+        )}
       </div>
       {room.playPass.status === "closed" ? (
-        <button disabled={!winner || busy} onClick={() => run("open")}>
-          {winner
-            ? `Open ${teamName(room, winner.team)} poll`
-            : "Waiting for face-off"}
-        </button>
+        <div className="host-play-pass__open-actions">
+          {(["one", "two"] as TeamId[]).map((team) => {
+            const representative = representatives[team];
+            return (
+              <button
+                type="button"
+                className={`host-play-pass__open-button--${team}`}
+                disabled={!winner || !representative || busy}
+                key={team}
+                onClick={() => run("open", team)}
+              >
+                <strong>Open {teamName(room, team)} poll</strong>
+                <small>
+                  {representative
+                    ? `Final call: ${representative.name}`
+                    : "Choose a face-off representative"}
+                </small>
+              </button>
+            );
+          })}
+        </div>
       ) : (
         <div className="host-play-pass__status">
           <span>
@@ -3872,7 +3907,9 @@ function PresenterFeud({ state }: { state: FeudPresentation }) {
         )}
         {state.decision.status === "open" && (
           <div className="presenter-decision">
-            <span>Team huddle</span>
+            <span>
+              {state.decision.team === "two" ? state.teamTwo : state.teamOne} huddle
+            </span>
             {state.decision.activePlayer ? (
               <PlayerIdentity participant={state.decision.activePlayer} compact />
             ) : (

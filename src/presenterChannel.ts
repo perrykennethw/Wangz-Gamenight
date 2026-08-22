@@ -43,6 +43,7 @@ export interface FeudPresentation extends PresentationBase {
   };
   decision: {
     status: "closed" | "open" | "decided";
+    team: TeamId | null;
     activePlayer: { name: string; avatarId: string | null } | null;
     choice: "play" | "pass" | null;
     controllingTeam: TeamId | null;
@@ -178,6 +179,7 @@ export function createFeudPresentation(
     },
     decision: {
       status: input.room.playPass.status,
+      team: input.room.playPass.team,
       activePlayer: activePlayer ? { name: activePlayer.name, avatarId: activePlayer.avatarId } : null,
       choice: input.room.playPass.decision,
       controllingTeam: input.room.playPass.controllingTeam,

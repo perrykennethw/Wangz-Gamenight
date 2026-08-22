@@ -52,7 +52,8 @@ const setTyping = (socket: TestSocket, isTyping: boolean, team?: TeamId) => sock
 const startGame = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('game:start', reply))
 const armBuzzer = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('buzzer:arm', reply))
 const pressBuzzer = (socket: TestSocket) => result((reply) => socket.emit('buzzer:press', reply))
-const openPoll = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('feud:open-play-pass', reply))
+const openPoll = (socket: TestSocket, team: TeamId) => result<RoomSnapshot>((reply) => socket.emit('feud:open-play-pass', { team }, reply))
+const openInvalidPoll = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('feud:open-play-pass', { team: 'three' as TeamId }, reply))
 const vote = (socket: TestSocket, choice: PlayPassChoice) => result<RoomSnapshot>((reply) => socket.emit('feud:vote-play-pass', choice, reply))
 const decide = (socket: TestSocket, choice: PlayPassChoice) => result<RoomSnapshot>((reply) => socket.emit('feud:decide-play-pass', choice, reply))
 const endQuestion = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('feud:end-question', reply))
@@ -204,13 +205,27 @@ try {
   }
   await assert.rejects(() => assignTeam(host, blakeJoined.viewer.role === 'player' ? blakeJoined.viewer.participantId : '', 'one'), /locked after the game starts/i)
   await assert.rejects(() => randomizeTeams(host), /locked after the game starts/i)
+  await assert.rejects(() => openPoll(host, 'one'), /finish the face-off/i)
 
   await armBuzzer(host)
   const activeId = started.buzzer.representatives.one
   const activeSocket = activeId === (averyJoined.viewer.role === 'player' ? averyJoined.viewer.participantId : '') ? avery : casey
   const teammateSocket = activeSocket === avery ? casey : avery
   await pressBuzzer(activeSocket)
-  const opened = await openPoll(host)
+  await assert.rejects(() => openPoll(activeSocket, 'one'), /only the host/i)
+  await assert.rejects(() => openInvalidPoll(host), /valid team/i)
+  const openedOtherTeam = await openPoll(host, 'two')
+  assert.equal(openedOtherTeam.playPass.team, 'two')
+  assert.equal(openedOtherTeam.playPass.activePlayerId, started.buzzer.representatives.two)
+  assert.equal(openedOtherTeam.buzzer.winner?.participantId, activeId)
+  assert.equal(openedOtherTeam.buzzer.winner?.team, 'one')
+  await assert.rejects(() => openPoll(host, 'one'), /already active/i)
+  await assert.rejects(() => vote(teammateSocket, 'pass'), /no play\/pass vote open for your team/i)
+  await vote(blake, 'play')
+  const canceled = await endQuestion(host)
+  assert.equal(canceled.playPass.status, 'closed')
+
+  const opened = await openPoll(host, 'one')
   assert.equal(opened.playPass.team, 'one')
   assert.equal(opened.playPass.activePlayerId, activeId)
 
@@ -238,6 +253,10 @@ try {
   assert.equal(ended.chat.lockedTeam, null)
   assert.equal(ended.playPass.status, 'closed')
   await sendMessage(blake, 'Rockets huddle reopened')
+
+  blake.disconnect()
+  await settle()
+  await assert.rejects(() => openPoll(host, 'two'), /connected face-off representative/i)
 
   const reconnectTimer = await startTimer(host, 40)
   avery.disconnect()

@@ -183,9 +183,9 @@ class RoomClient {
     return () => this.socket.off("fast-money:repeat", listener);
   }
 
-  openPlayPass(): Promise<RoomSnapshot> {
+  openPlayPass(team: TeamId): Promise<RoomSnapshot> {
     return new Promise((resolve, reject) => {
-      this.socket.emit("feud:open-play-pass", (result) =>
+      this.socket.emit("feud:open-play-pass", { team }, (result) =>
         this.finish(result, resolve, reject),
       );
     });

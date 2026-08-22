@@ -640,11 +640,16 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 .play-pass-result { color: #b8c7dc; }
 
 .host-play-pass { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(180px, .75fr) minmax(300px, 1.25fr); align-items: center; gap: 15px; padding: 13px 16px; color: var(--ink); background: var(--gold); border-left: 7px solid var(--coral); }
-.host-play-pass > div:first-child span, .host-play-pass > div:first-child strong { display: block; }
+.host-play-pass > div:first-child span, .host-play-pass > div:first-child strong, .host-play-pass > div:first-child small { display: block; }
 .host-play-pass > div:first-child span { font-size: 8px; font-weight: 900; letter-spacing: .14em; text-transform: uppercase; }
 .host-play-pass > div:first-child strong { margin-top: 4px; font-family: var(--display); font-size: 23px; letter-spacing: .03em; text-transform: uppercase; }
-.host-play-pass > button, .host-play-pass__status button { min-height: 42px; padding: 10px 13px; color: var(--paper); background: var(--ink); border: 0; font-size: 9px; font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
-.host-play-pass > button:disabled { color: #7b7361; background: #d8b952; cursor: not-allowed; }
+.host-play-pass > div:first-child small { max-width: 420px; margin-top: 5px; color: #66551f; font-size: 8px; line-height: 1.4; }
+.host-play-pass__open-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.host-play-pass__open-actions button, .host-play-pass__status button { min-height: 48px; padding: 10px 13px; color: var(--paper); background: var(--ink); border: 0; font-size: 9px; font-weight: 900; letter-spacing: .05em; text-align: left; text-transform: uppercase; }
+.host-play-pass__open-actions button strong, .host-play-pass__open-actions button small { display: block; }
+.host-play-pass__open-actions button small { margin-top: 4px; color: #b9c7dc; font-size: 7px; letter-spacing: .04em; }
+.host-play-pass__open-actions .host-play-pass__open-button--two { background: var(--blue); }
+.host-play-pass__open-actions button:disabled { color: #7b7361; background: #d8b952; cursor: not-allowed; }
 .host-play-pass__status { display: grid; grid-template-columns: auto auto 1fr; align-items: center; gap: 8px; }
 .host-play-pass__status > span { padding: 9px 11px; background: rgba(255,255,255,.45); font-size: 9px; font-weight: 900; text-transform: uppercase; }
 .host-play-pass__status > span b { margin-left: 7px; font-family: var(--display); font-size: 21px; }
@@ -1200,6 +1205,7 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
   .host-buzzer-panel__actions { grid-column: 1 / -1; }
   .host-buzzer-panel__actions button { flex: 1; }
   .host-play-pass { grid-template-columns: 1fr; }
+  .host-play-pass__open-actions { grid-template-columns: 1fr; }
   .host-play-pass__status { grid-template-columns: 1fr 1fr; }
   .host-play-pass__status button { grid-column: 1 / -1; justify-self: stretch; }
   .host-turn-order { padding: 12px; }

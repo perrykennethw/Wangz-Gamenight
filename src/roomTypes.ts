@@ -342,6 +342,7 @@ export interface ClientToServerEvents {
   ) => void;
   "chat:typing": (details: { isTyping: boolean; team?: TeamId }) => void;
   "feud:open-play-pass": (
+    details: { team: TeamId },
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "feud:vote-play-pass": (
