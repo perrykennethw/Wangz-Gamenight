@@ -12,6 +12,8 @@ import {
   type BuzzerState,
   type ClientToServerEvents,
   type GameConfig,
+  type FeudRoundCommand,
+  type FeudRoundView,
   type Participant,
   type PlayPassChoice,
   type PlayPassPollView,
@@ -21,6 +23,7 @@ import {
   type SharedTimerState,
   type TeamId,
 } from '../src/roomTypes.js'
+import { applyFeudRoundCommand, createFeudRoundState, otherFeudTeam, setFeudControl } from '../src/feudRound.js'
 import { GamePackError, normalizeFeudGamePack } from '../src/feudGamePack.js'
 import {
   activateFeudTurnTeam,
@@ -76,7 +79,7 @@ interface Room {
     controllingTeam: TeamId | null
   }
   feudTurns: FeudTurnState
-  game: SpinSolveState | FastMoneyState | null
+  game: SpinSolveState | FeudRoundView | FastMoneyState | null
   buzzer: BuzzerState
   timer: SharedTimerState
   timerGeneration: number
@@ -317,7 +320,9 @@ function snapshotFor(room: Room, socketId: string): RoomSnapshot {
     game: room.game
       ? room.game.kind === 'spin-solve'
         ? viewSpinSolveGame(room.game)
-        : room.config.kind === 'feud' && room.config.pack.fastMoney
+        : room.game.kind === 'feud'
+          ? { ...room.game, revealed: [...room.game.revealed], scores: { ...room.game.scores } }
+          : room.config.kind === 'feud' && room.config.pack.fastMoney
           ? viewFastMoney(room.game, room.config.pack.fastMoney, [...room.participants.values()], {
               role: connection.role,
               participantId: participant?.id ?? null,
@@ -928,6 +933,7 @@ io.on('connection', (socket) => {
     room.playPass.status = 'decided'
     room.playPass.decision = choice
     room.playPass.controllingTeam = controllingTeam
+    if (room.game?.kind === 'feud') room.game = setFeudControl(room.game, controllingTeam)
     repairRoomFeudTurns(room)
     room.feudTurns = activateFeudTurnTeam(room.feudTurns, controllingTeam)
     clearTeamTyping(room, controllingTeam)
@@ -1020,6 +1026,8 @@ io.on('connection', (socket) => {
     )
     if (room.config.kind === 'spin-solve') {
       room.game = createSpinSolveGame(room.config, { random: Math.random, now: Date.now })
+    } else {
+      room.game = createFeudRoundState()
     }
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
@@ -1067,6 +1075,104 @@ io.on('connection', (socket) => {
     syncRoom(room)
   })
 
+  socket.on('feud:round-action', (command: FeudRoundCommand, reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) {
+      return reply({ ok: false, error: 'Only the host can manage the Family Feud round.' })
+    }
+    if (room.phase !== 'playing' || room.config.kind !== 'feud' || room.game?.kind !== 'feud') {
+      return reply({ ok: false, error: 'Start a Family Feud game before using the round controls.' })
+    }
+    if (!isRecord(command) || typeof command.type !== 'string') {
+      return reply({ ok: false, error: 'Choose a valid Family Feud control.' })
+    }
+    const allowedCommands: FeudRoundCommand['type'][] = [
+      'reveal-answer',
+      'add-strike',
+      'remove-strike',
+      'set-control',
+      'set-steal-outcome',
+      'select-award-team',
+      'confirm-award',
+      'adjust-score',
+      'skip-question',
+    ]
+    if (!allowedCommands.includes(command.type)) {
+      return reply({ ok: false, error: 'Choose a valid Family Feud control.' })
+    }
+    if (
+      (command.type === 'set-control' || command.type === 'select-award-team')
+      && !isTeamId(command.team)
+    ) {
+      return reply({ ok: false, error: 'Choose one of the two teams.' })
+    }
+    if (
+      command.type === 'set-steal-outcome'
+      && command.outcome !== 'success'
+      && command.outcome !== 'failed'
+    ) {
+      return reply({ ok: false, error: 'Choose whether the steal succeeded or failed.' })
+    }
+    if (command.type === 'add-strike' && !room.game.controllingTeam) {
+      return reply({ ok: false, error: 'Finish Play or Pass before recording normal-play strikes.' })
+    }
+
+    const previous = room.game
+    const result = applyFeudRoundCommand(previous, room.config, command)
+    if (!result.ok) return reply(result)
+    room.game = result.state
+
+    if (command.type === 'set-control') {
+      room.playPass = {
+        ...room.playPass,
+        status: 'decided',
+        decision: room.playPass.decision ?? 'play',
+        controllingTeam: command.team,
+      }
+      repairRoomFeudTurns(room)
+      room.feudTurns = activateFeudTurnTeam(room.feudTurns, command.team)
+      clearTeamTyping(room, command.team)
+      room.chatLockedTeam = command.team
+    } else if (command.type === 'reveal-answer' && previous.phase === 'playing' && previous.controllingTeam) {
+      repairRoomFeudTurns(room)
+      room.feudTurns = advanceFeudTurn(room.feudTurns, connectedParticipantIds(room))
+    } else if (command.type === 'add-strike') {
+      if (result.state.strikes < 3 && result.state.controllingTeam) {
+        repairRoomFeudTurns(room)
+        room.feudTurns = advanceFeudTurn(room.feudTurns, connectedParticipantIds(room))
+      } else if (result.state.strikes === 3 && result.state.originalControllingTeam) {
+        const stealingTeam = otherFeudTeam(result.state.originalControllingTeam)
+        repairRoomFeudTurns(room)
+        room.feudTurns = activateFeudTurnTeam(room.feudTurns, stealingTeam)
+        room.chatLockedTeam = stealingTeam
+      }
+    } else if (command.type === 'remove-strike' && previous.strikes === 3 && result.state.controllingTeam) {
+      repairRoomFeudTurns(room)
+      room.feudTurns = activateFeudTurnTeam(room.feudTurns, result.state.controllingTeam)
+      room.chatLockedTeam = result.state.controllingTeam
+    }
+
+    if (result.event === 'round-awarded' || result.event === 'question-skipped') {
+      endFeudQuestion(room)
+      room.buzzer = {
+        status: 'idle',
+        winner: null,
+        representatives: {
+          one: nextRepresentative(room, 'one'),
+          two: nextRepresentative(room, 'two'),
+        },
+      }
+      seedRoomFeudTurns(room)
+    } else if (result.event === 'game-won') {
+      endFeudQuestion(room)
+      room.buzzer = { ...room.buzzer, status: 'idle', winner: null }
+    }
+
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
   socket.on('fast-money:action', (command, reply) => {
     const room = roomFor(socket.id)
     const connection = room?.connections.get(socket.id)
@@ -1086,7 +1192,9 @@ io.on('connection', (socket) => {
     if (command.type === 'start') {
       if (connection.role !== 'host') return reply({ ok: false, error: 'Only the host can start Fast Money.' })
       if (!isTeamId(command.team)) return reply({ ok: false, error: 'Choose the team that won the main game.' })
-      if (room.game) return reply({ ok: false, error: 'Fast Money has already started.' })
+      if (room.game && room.game.kind !== 'feud') {
+        return reply({ ok: false, error: 'Fast Money has already started.' })
+      }
       if (playersForTeam(room, command.team).length < 2) {
         return reply({ ok: false, error: 'The winning team needs two connected players for Fast Money.' })
       }
