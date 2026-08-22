@@ -147,6 +147,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .versus { display: flex; align-items: center; gap: 12px; margin: 24px 0; color: #aaa49a; font-family: var(--display); }
 .versus::before, .versus::after { content: ''; height: 1px; flex: 1; background: #d8d1c4; }
 .setup-form fieldset { padding: 0; margin: 38px 0 26px; border: 0; }
+.next-game-room-banner { display: grid; gap: 4px; margin-bottom: 28px; padding: 15px 17px; color: var(--paper); background: var(--ink); border-left: 7px solid var(--gold); }
+.next-game-room-banner span, .next-game-room-banner small { font-size: 8px; font-weight: 900; letter-spacing: .11em; text-transform: uppercase; }
+.next-game-room-banner span { color: var(--gold); }
+.next-game-room-banner strong { font-family: var(--display); font-size: 27px; letter-spacing: .04em; text-transform: uppercase; }
+.next-game-room-banner small { color: var(--muted); line-height: 1.4; }
+.next-game-picker .score-options { grid-template-columns: 1fr 1fr; }
+.next-game-picker button { min-height: 52px; color: var(--ink); background: transparent; border: 1px solid #bcb5aa; font-weight: 900; text-transform: uppercase; }
+.next-game-picker button.is-selected { color: var(--paper); background: var(--ink); border-color: var(--ink); }
 .score-options { display: grid; grid-template-columns: repeat(3, 1fr); gap: 9px; }
 .score-options label { padding: 15px 10px; text-align: center; border: 1px solid #bcb5aa; font-size: 12px; font-weight: 800; cursor: pointer; }
 .score-options label.is-selected { color: var(--paper); background: var(--ink); border-color: var(--ink); }
@@ -391,7 +399,7 @@ kbd { display: inline-grid; place-items: center; min-width: 18px; min-height: 18
 .winner-score { display: flex; align-items: baseline; justify-content: center; gap: 7px; margin: 27px 0; }
 .winner-score strong { font-family: var(--display); font-size: 60px; }
 .winner-score span { font-size: 11px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
-.winner-actions { display: flex; gap: 12px; }
+.winner-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .winner-actions .primary-button { flex: 1; }
 .secondary-button { flex: 1; padding: 16px; color: var(--ink); background: transparent; border: 2px solid var(--ink); font-weight: 900; letter-spacing: .08em; text-transform: uppercase; }
 
@@ -489,7 +497,9 @@ kbd { display: inline-grid; place-items: center; min-width: 18px; min-height: 18
 .lobby-status strong { letter-spacing: .08em; text-transform: uppercase; }
 .lobby-status span:last-child { margin-left: auto; color: var(--muted); }
 .lobby-team-tools { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding-top: 17px; color: var(--muted); font-size: 10px; }
+.lobby-team-tools > div { display: flex; justify-content: flex-end; gap: 7px; }
 .lobby-team-tools button { padding: 10px 14px; color: var(--ink); background: var(--gold); border: 0; font-size: 9px; font-weight: 900; letter-spacing: .09em; text-transform: uppercase; }
+.lobby-team-tools button.is-secondary { color: var(--paper); background: #263955; }
 .lobby-team-tools button:disabled { opacity: .45; cursor: not-allowed; }
 .team-update-message { margin: 12px 0 0; padding: 10px 13px; color: var(--ink); background: #dff7e8; border-left: 5px solid #33a564; font-size: 10px; font-weight: 800; }
 .live-dot { display: inline-block; width: 8px; height: 8px; background: #5be08b; border-radius: 50%; box-shadow: 0 0 0 4px rgba(91,224,139,.13); }
@@ -1243,7 +1253,7 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
   .award-panel button { max-width: none; }
   .game-help { display: none; }
   .winner-modal { padding: 45px 22px 35px; }
-  .winner-actions { flex-direction: column; }
+  .winner-actions { grid-template-columns: 1fr; }
   .spin-topbar { grid-template-columns: 1fr auto; min-height: 59px; padding: 10px 14px; }
   .spin-topbar > div:nth-child(2) span, .spin-topbar > button { display: none; }
   .spin-topbar .host-view-actions { display: none; }
@@ -1301,6 +1311,7 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
   .lobby-content { padding: 0 20px 55px; }
   .lobby-status span:last-child { display: none; }
   .lobby-team-tools { align-items: stretch; flex-direction: column; }
+  .lobby-team-tools > div { display: grid; grid-template-columns: 1fr; }
   .roster-grid { grid-template-columns: 1fr; }
   .team-roster { min-height: 180px; }
   .host-unassigned__players { grid-template-columns: 1fr; }

@@ -101,8 +101,11 @@ interface HomeProps {
 interface SetupProps {
   kind: GameConfig["kind"];
   feudPack: FeudGamePack;
+  initialConfig?: GameConfig;
+  existingRoomCode?: string;
   onBack: () => void;
   onBuildPack: () => void;
+  onChooseKind?: (kind: GameConfig["kind"]) => void;
   onSelectPack: (pack: FeudGamePack) => void;
   onStart: (config: GameConfig) => Promise<void>;
 }
@@ -125,7 +128,8 @@ interface AnswerTileProps {
 interface WinnerModalProps {
   winner: string;
   score: number;
-  onReplay: () => void;
+  onReplay: () => Promise<void>;
+  onChangeGame: () => Promise<void>;
   onHome: () => void;
   onFastMoney?: () => void;
   fastMoneyError?: string;
@@ -136,7 +140,8 @@ interface GameProps {
   roomCode: string;
   room: RoomSnapshot;
   onExit: () => void;
-  onReplay: () => void;
+  onReplay: () => Promise<void>;
+  onChangeGame: () => Promise<void>;
 }
 
 type PrototypeVariant = "A" | "B" | "C";
@@ -719,15 +724,18 @@ function Home({ onChooseFeud, onChooseSpinSolve, onJoin }: HomeProps) {
 function Setup({
   kind,
   feudPack,
+  initialConfig,
+  existingRoomCode,
   onBack,
   onBuildPack,
+  onChooseKind,
   onSelectPack,
   onStart,
 }: SetupProps) {
-  const [teamOne, setTeamOne] = useState("The Leftovers");
-  const [teamTwo, setTeamTwo] = useState("The Plus Ones");
-  const [winningScore, setWinningScore] = useState(300);
-  const [rounds, setRounds] = useState(3);
+  const [teamOne, setTeamOne] = useState(initialConfig?.teamOne ?? "The Leftovers");
+  const [teamTwo, setTeamTwo] = useState(initialConfig?.teamTwo ?? "The Plus Ones");
+  const [winningScore, setWinningScore] = useState(initialConfig?.kind === "feud" ? initialConfig.winningScore : 300);
+  const [rounds, setRounds] = useState(initialConfig?.kind === "spin-solve" ? initialConfig.rounds : 3);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState("");
   const [packError, setPackError] = useState("");
@@ -772,10 +780,10 @@ function Setup({
     <main className="setup-shell">
       <header className="setup-nav">
         <button className="text-button" onClick={onBack}>
-          ← All games
+          {existingRoomCode ? "← Back to room" : "← All games"}
         </button>
         <Brand compact />
-        <span className="step-label">Game setup</span>
+        <span className="step-label">{existingRoomCode ? "Next game setup" : "Game setup"}</span>
       </header>
 
       <section className="setup-stage">
@@ -816,6 +824,22 @@ function Setup({
         </div>
 
         <form className="setup-form" onSubmit={submit}>
+          {existingRoomCode && (
+            <div className="next-game-room-banner" role="status">
+              <span>Keeping everyone together</span>
+              <strong>Room {existingRoomCode}</strong>
+              <small>Players, teams, and chat stay in this room.</small>
+            </div>
+          )}
+          {onChooseKind && (
+            <fieldset className="next-game-picker">
+              <legend>Choose the next game</legend>
+              <div className="score-options">
+                <button type="button" className={kind === "feud" ? "is-selected" : ""} onClick={() => onChooseKind("feud")}>Family Feud</button>
+                <button type="button" className={kind === "spin-solve" ? "is-selected" : ""} onClick={() => onChooseKind("spin-solve")}>Spin &amp; Solve</button>
+              </div>
+            </fieldset>
+          )}
           <label>
             <span>Team one</span>
             <input
@@ -925,13 +949,21 @@ function Setup({
             type="submit"
             disabled={isCreating}
           >
-            {isCreating ? "Opening room…" : "Open the room"}{" "}
+            {isCreating
+              ? existingRoomCode ? "Saving next game…" : "Opening room…"
+              : existingRoomCode ? "Use this game in the room" : "Open the room"}{" "}
             {!isCreating && <Arrow />}
           </button>
         </form>
       </section>
     </main>
   );
+}
+
+function ExistingRoomSetup({ room, ...props }: SetupProps & { room: RoomSnapshot }) {
+  const presentation = useMemo(() => createLobbyPresentation(room), [room]);
+  usePresentationPublisher(presentation);
+  return <Setup {...props} existingRoomCode={room.code} />;
 }
 
 interface JoinRoomProps {
@@ -1979,10 +2011,11 @@ function PlayerFeudTurnCard({
 interface HostLobbyProps {
   room: RoomSnapshot;
   onStart: () => Promise<void>;
+  onChangeGame: () => void;
   onExit: () => void;
 }
 
-function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
+function HostLobby({ room, onStart, onChangeGame, onExit }: HostLobbyProps) {
   const [error, setError] = useState("");
   const [isStarting, setIsStarting] = useState(false);
   const [isRandomizing, setIsRandomizing] = useState(false);
@@ -1990,6 +2023,7 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
   const [draggingPlayerId, setDraggingPlayerId] = useState<string | null>(null);
   const [teamUpdateMessage, setTeamUpdateMessage] = useState("");
   const [teamRevealRevision, setTeamRevealRevision] = useState(0);
+  const [isClearingChats, setIsClearingChats] = useState(false);
   const teamOneReady = room.participants.some(
     (player) => player.team === "one",
   );
@@ -2065,6 +2099,21 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
     }
   };
 
+  const clearTeamChats = async () => {
+    if (!window.confirm("Clear both team chat histories for this room? This cannot be undone.")) return;
+    setError("");
+    setTeamUpdateMessage("");
+    setIsClearingChats(true);
+    try {
+      await roomClient.clearTeamChats();
+      setTeamUpdateMessage("Both team chat histories were cleared.");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Could not clear team chats.");
+    } finally {
+      setIsClearingChats(false);
+    }
+  };
+
   return (
     <main className="room-shell">
       <header className="room-nav">
@@ -2106,16 +2155,27 @@ function HostLobby({ room, onStart, onExit }: HostLobbyProps) {
             Drag a player between rosters, use their move button, or deal
             everyone again.
           </span>
-          <button
-            onClick={randomizeTeams}
-            disabled={
-              room.participants.length < 2 ||
-              isRandomizing ||
-              movingPlayerId !== null
-            }
-          >
-            {isRandomizing ? "Dealing teams…" : "Randomize teams"}
-          </button>
+          <div>
+            <button type="button" className="is-secondary" onClick={onChangeGame}>Change game or pack</button>
+            <button
+              type="button"
+              className="is-secondary"
+              onClick={() => void clearTeamChats()}
+              disabled={isClearingChats || ((room.teamChats.one?.length ?? 0) + (room.teamChats.two?.length ?? 0) === 0)}
+            >
+              {isClearingChats ? "Clearing chats…" : "Clear team chats"}
+            </button>
+            <button
+              onClick={randomizeTeams}
+              disabled={
+                room.participants.length < 2 ||
+                isRandomizing ||
+                movingPlayerId !== null
+              }
+            >
+              {isRandomizing ? "Dealing teams…" : "Randomize teams"}
+            </button>
+          </div>
         </div>
         {teamUpdateMessage && (
           <p className="team-update-message" role="status" aria-live="polite">
@@ -3180,11 +3240,13 @@ function SpinSolveHostGame({
   onAction,
   onExit,
   onReplay,
+  onChangeGame,
 }: {
   room: RoomSnapshot;
   onAction: (command: SpinSolveCommand) => Promise<void>;
   onExit: () => void;
-  onReplay: () => void;
+  onReplay: () => Promise<void>;
+  onChangeGame: () => Promise<void>;
 }) {
   const presentation = useMemo(() => createSpinPresentation(room), [room]);
   usePresentationPublisher(presentation);
@@ -3250,6 +3312,7 @@ function SpinSolveHostGame({
           winner={teamLabel(room.config, game.winnerTeam)}
           score={game.totals[game.winnerTeam]}
           onReplay={onReplay}
+          onChangeGame={onChangeGame}
           onHome={onExit}
         />
       )}
@@ -3309,7 +3372,19 @@ function PlayerSpinSolve({
   );
 }
 
-function WinnerModal({ winner, score, onReplay, onHome, onFastMoney, fastMoneyError }: WinnerModalProps) {
+function WinnerModal({ winner, score, onReplay, onChangeGame, onHome, onFastMoney, fastMoneyError }: WinnerModalProps) {
+  const [nextGameAction, setNextGameAction] = useState<"same" | "change" | null>(null);
+  const [nextGameError, setNextGameError] = useState("");
+  const prepare = async (action: "same" | "change") => {
+    setNextGameAction(action);
+    setNextGameError("");
+    try {
+      await (action === "same" ? onReplay() : onChangeGame());
+    } catch (cause) {
+      setNextGameError(cause instanceof Error ? cause.message : "Could not prepare the next game.");
+      setNextGameAction(null);
+    }
+  };
   return (
     <div
       className="modal-backdrop"
@@ -3331,18 +3406,21 @@ function WinnerModal({ winner, score, onReplay, onHome, onFastMoney, fastMoneyEr
         </div>
         <div className="winner-actions">
           {onFastMoney && (
-            <button className="primary-button" onClick={onFastMoney}>
+            <button className="primary-button" onClick={onFastMoney} disabled={nextGameAction !== null}>
               Play Fast Money
             </button>
           )}
-          <button className="primary-button" onClick={onReplay}>
-            Run it back
+          <button className="primary-button" disabled={nextGameAction !== null} onClick={() => void prepare("same")}>
+            {nextGameAction === "same" ? "Preparing room…" : "Play again in this room"}
           </button>
-          <button className="secondary-button" onClick={onHome}>
+          <button className="secondary-button" disabled={nextGameAction !== null} onClick={() => void prepare("change")}>
+            {nextGameAction === "change" ? "Opening setup…" : "Change game or pack"}
+          </button>
+          <button className="secondary-button" onClick={onHome} disabled={nextGameAction !== null}>
             Game cabinet
           </button>
         </div>
-        {fastMoneyError && <p className="form-error" role="alert">{fastMoneyError}</p>}
+        {(fastMoneyError || nextGameError) && <p className="form-error" role="alert">{fastMoneyError || nextGameError}</p>}
       </div>
     </div>
   );
@@ -3468,7 +3546,7 @@ function HostBuzzerPanel({ room }: { room: RoomSnapshot }) {
   );
 }
 
-function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
+function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GameProps) {
   const [round, setRound] = useState(1);
   const [questionIndex, setQuestionIndex] = useState(0);
   const [revealed, setRevealed] = useState<number[]>([]);
@@ -3621,6 +3699,15 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
           </div>
         </header>
         <FastMoneyHost room={room} />
+        {room.game.phase === "complete" && (
+          <WinnerModal
+            winner={teamName(room, room.game.eligibleTeam)}
+            score={room.game.combinedScore}
+            onReplay={onReplay}
+            onChangeGame={onChangeGame}
+            onHome={onExit}
+          />
+        )}
       </main>
     );
   }
@@ -3765,6 +3852,7 @@ function Game({ config, roomCode, room, onExit, onReplay }: GameProps) {
           winner={winner.name}
           score={winner.score}
           onReplay={onReplay}
+          onChangeGame={onChangeGame}
           onHome={onExit}
           onFastMoney={config.pack.fastMoney ? () => {
             setFastMoneyError("");
@@ -4202,6 +4290,7 @@ export default function App() {
   const [feudPack, setFeudPack] = useState<FeudGamePack>(starterFeudPack);
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
   const [roomNotice, setRoomNotice] = useState("");
+  const [preparingExistingRoom, setPreparingExistingRoom] = useState(false);
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -4221,6 +4310,7 @@ export default function App() {
 
   const createRoom = async (nextConfig: GameConfig) => {
     const snapshot = await roomClient.createRoom(nextConfig);
+    setPreparingExistingRoom(false);
     setConfig(nextConfig);
     setRoom(snapshot);
     setScreen("host-lobby");
@@ -4242,16 +4332,44 @@ export default function App() {
     roomClient.leaveRoom();
     setRoom(null);
     setConfig(null);
+    setPreparingExistingRoom(false);
     setScreen("home");
   };
 
-  const replay = () => {
-    roomClient.leaveRoom();
-    setRoom(null);
+  const prepareNextGame = async (changeGame: boolean) => {
+    if (!room) throw new Error("This room is no longer active.");
+    const snapshot = await roomClient.prepareNextGame(room.gameRevision);
+    setRoom(snapshot);
+    if (changeGame) {
+      setSelectedGame(config?.kind ?? snapshot.config.kind);
+      setPreparingExistingRoom(true);
+      setScreen("setup");
+    } else {
+      setPreparingExistingRoom(false);
+      setScreen("host-lobby");
+    }
+  };
+
+  const configureExistingRoom = async (nextConfig: GameConfig) => {
+    if (!room) throw new Error("This room is no longer active.");
+    const snapshot = await roomClient.prepareNextGame(room.gameRevision, nextConfig);
+    setConfig(nextConfig);
+    setSelectedGame(nextConfig.kind);
+    if (nextConfig.kind === "feud") setFeudPack(nextConfig.pack);
+    setRoom(snapshot);
+    setPreparingExistingRoom(false);
+    setScreen("host-lobby");
+  };
+
+  const openExistingRoomSetup = () => {
+    if (!room || !config) return;
+    setSelectedGame(config.kind);
+    setPreparingExistingRoom(true);
     setScreen("setup");
   };
 
   const chooseGame = (kind: GameConfig["kind"]) => {
+    setPreparingExistingRoom(false);
     setSelectedGame(kind);
     setScreen("setup");
   };
@@ -4280,7 +4398,25 @@ export default function App() {
           />
         </>
       )}
-      {screen === "setup" && (
+      {screen === "setup" && preparingExistingRoom && room ? (
+        <ExistingRoomSetup
+          room={room}
+          kind={selectedGame}
+          feudPack={feudPack}
+          initialConfig={config ?? undefined}
+          onBack={() => {
+            setPreparingExistingRoom(false);
+            setScreen("host-lobby");
+          }}
+          onBuildPack={() => setScreen("builder")}
+          onChooseKind={setSelectedGame}
+          onSelectPack={(pack) => {
+            setFeudPack(pack);
+            saveFeudGamePackDraft(pack);
+          }}
+          onStart={configureExistingRoom}
+        />
+      ) : screen === "setup" ? (
         <Setup
           kind={selectedGame}
           feudPack={feudPack}
@@ -4292,7 +4428,7 @@ export default function App() {
           }}
           onStart={createRoom}
         />
-      )}
+      ) : null}
       {screen === "builder" && (
         <FeudGameBuilder
           initialPack={feudPack}
@@ -4311,7 +4447,7 @@ export default function App() {
         />
       )}
       {screen === "host-lobby" && room && (
-        <HostLobby room={room} onStart={startGame} onExit={leaveRoom} />
+        <HostLobby room={room} onStart={startGame} onChangeGame={openExistingRoomSetup} onExit={leaveRoom} />
       )}
       {screen === "player-room" && room && (
         <PlayerRoom
@@ -4327,12 +4463,13 @@ export default function App() {
       )}
       {screen === "game" && config?.kind === "feud" && room && (
         <Game
-          key={`${config.teamOne}-${config.teamTwo}-${screen}`}
+          key={`${room.gameRevision}-${config.teamOne}-${config.teamTwo}-${screen}`}
           config={config}
           roomCode={room.code}
           room={room}
           onExit={leaveRoom}
-          onReplay={replay}
+          onReplay={() => prepareNextGame(false)}
+          onChangeGame={() => prepareNextGame(true)}
         />
       )}
       {screen === "game" && config?.kind === "spin-solve" && room && (
@@ -4340,7 +4477,8 @@ export default function App() {
           room={room}
           onAction={gameAction}
           onExit={leaveRoom}
-          onReplay={replay}
+          onReplay={() => prepareNextGame(false)}
+          onChangeGame={() => prepareNextGame(true)}
         />
       )}
     </>

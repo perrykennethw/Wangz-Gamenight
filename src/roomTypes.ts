@@ -244,6 +244,7 @@ export type GameView = SpinSolveView | FastMoneyView;
 export interface RoomSnapshot {
   code: string;
   phase: RoomPhase;
+  gameRevision: number;
   config: RoomConfig;
   participants: Participant[];
   messages: ChatMessage[];
@@ -328,6 +329,13 @@ export interface ClientToServerEvents {
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "timer:stop": (
+    reply: (result: RoomResult<RoomSnapshot>) => void,
+  ) => void;
+  "room:prepare-next-game": (
+    details: { expectedGameRevision: number; config?: GameConfig },
+    reply: (result: RoomResult<RoomSnapshot>) => void,
+  ) => void;
+  "room:clear-team-chats": (
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "room:leave": () => void;

@@ -57,6 +57,7 @@ interface Connection {
 interface Room {
   code: string
   phase: 'lobby' | 'playing'
+  gameRevision: number
   config: GameConfig
   hostSocketId: string
   participants: Map<string, Participant>
@@ -297,6 +298,7 @@ function snapshotFor(room: Room, socketId: string): RoomSnapshot {
   return {
     code: room.code,
     phase: room.phase,
+    gameRevision: room.gameRevision,
     config,
     participants: [...room.participants.values()],
     messages: participant?.team ? room.messages[participant.team] : [],
@@ -451,6 +453,20 @@ function clearTeamTyping(room: Room, team: TeamId): void {
   }
 }
 
+function prepareRoomForNextGame(room: Room, config: GameConfig): void {
+  cancelSharedTimerExpiration(room)
+  cancelFastMoneyExpiration(room)
+  for (const socketId of [...room.typing.keys()]) setRoomTyping(room, socketId, undefined, false)
+  room.phase = 'lobby'
+  room.config = config
+  room.chatLockedTeam = null
+  room.playPass = closedPlayPass()
+  room.feudTurns = createFeudTurnState([], { one: null, two: null }, new Set())
+  room.game = null
+  room.buzzer = { status: 'idle', winner: null, representatives: { one: null, two: null } }
+  room.timer = createIdleSharedTimer()
+}
+
 function playersForTeam(room: Room, team: TeamId): Participant[] {
   return [...room.participants.values()].filter((participant) => participant.team === team)
 }
@@ -568,6 +584,7 @@ io.on('connection', (socket) => {
     const room: Room = {
       code,
       phase: 'lobby',
+      gameRevision: 0,
       config: normalizedConfig,
       hostSocketId: socket.id,
       participants: new Map(),
@@ -764,6 +781,45 @@ io.on('connection', (socket) => {
     syncRoom(room)
   })
 
+  socket.on('room:prepare-next-game', (details, reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) {
+      return reply({ ok: false, error: 'Only the host can prepare the next game.' })
+    }
+    const expectedGameRevision = isRecord(details) ? details.expectedGameRevision : undefined
+    if (!Number.isInteger(expectedGameRevision) || expectedGameRevision !== room.gameRevision) {
+      return reply({ ok: false, error: 'A newer game is already active. Refresh before resetting the room.' })
+    }
+
+    let nextConfig = room.config
+    if (isRecord(details) && details.config !== undefined) {
+      try {
+        nextConfig = normalizeGameConfig(details.config)
+      } catch (cause) {
+        const message = cause instanceof GamePackError ? cause.issues[0] : cause instanceof Error ? cause.message : 'That next-game setup is not valid.'
+        return reply({ ok: false, error: message })
+      }
+    }
+
+    prepareRoomForNextGame(room, nextConfig)
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('room:clear-team-chats', (reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) {
+      return reply({ ok: false, error: 'Only the host can clear team chats.' })
+    }
+    if (room.phase !== 'lobby') return reply({ ok: false, error: 'Clear team chats before starting the next game.' })
+    for (const socketId of [...room.typing.keys()]) setRoomTyping(room, socketId, undefined, false)
+    room.messages = { one: [], two: [] }
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
   socket.on('chat:send', ({ text, team }, reply) => {
     const room = roomFor(socket.id)
     const connection = room?.connections.get(socket.id)
@@ -940,12 +996,14 @@ io.on('connection', (socket) => {
   socket.on('game:start', (reply) => {
     const room = roomFor(socket.id)
     if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can start the game.' })
+    if (room.phase === 'playing') return reply({ ok: true, data: snapshotFor(room, socket.id) })
 
     const hasTeamOne = [...room.participants.values()].some((player) => player.team === 'one')
     const hasTeamTwo = [...room.participants.values()].some((player) => player.team === 'two')
     if (!hasTeamOne || !hasTeamTwo) return reply({ ok: false, error: 'Each team needs at least one player.' })
 
     room.phase = 'playing'
+    room.gameRevision += 1
     endFeudQuestion(room)
     room.buzzer = {
       status: 'idle',

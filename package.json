@@ -20,6 +20,7 @@
     "test:fast-money": "tsx server/fastMoney.test.ts",
     "test:fast-money-integration": "tsx server/fastMoney.integration.ts",
     "test:privacy": "tsx server/privacy.integration.ts",
+    "test:room-replay": "tsx server/roomReplay.integration.ts",
     "test:moderated-chat": "tsx server/moderatedChat.integration.ts",
     "test:presenter": "tsx server/presenter.test.ts",
     "test:room-invites": "tsx server/roomInvite.test.ts",

@@ -135,6 +135,24 @@ class RoomClient {
     });
   }
 
+  prepareNextGame(expectedGameRevision: number, config?: GameConfig): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit(
+        "room:prepare-next-game",
+        { expectedGameRevision, ...(config ? { config } : {}) },
+        (result) => this.finish(result, resolve, reject),
+      );
+    });
+  }
+
+  clearTeamChats(): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit("room:clear-team-chats", (result) =>
+        this.finish(result, resolve, reject),
+      );
+    });
+  }
+
   startGame(): Promise<RoomSnapshot> {
     return new Promise((resolve, reject) => {
       this.socket.emit("game:start", (result) =>
