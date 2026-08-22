@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { avatarFor, initials } from "./avatarCatalog";
 import { gameAudio } from "./gameAudio";
@@ -142,7 +142,7 @@ function AnswerForm({
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "That answer did not register.";
       setError(message);
-      if (!host && /repeat answer/i.test(message)) void gameAudio.play("repeat");
+      if (!host && /repeat answer/i.test(message)) void gameAudio.play("repeat-answer");
     } finally {
       setBusy(false);
     }
@@ -212,7 +212,7 @@ function ReviewRow({
         answerId: answerId || null,
         repeated,
       });
-      if (repeated) void gameAudio.play("repeat");
+      if (repeated) void gameAudio.play("repeat-answer");
       setStatus("Saved");
     } catch (cause) {
       setStatus(cause instanceof Error ? cause.message : "Could not save this score.");
@@ -437,8 +437,32 @@ function HostReview({ game }: { game: FastMoneyView }) {
 }
 
 export function FastMoneyHost({ room }: { room: RoomSnapshot }) {
-  if (room.game?.kind !== "fast-money") return null;
-  const game = room.game;
+  const game = room.game?.kind === "fast-money" ? room.game : null;
+  const previousAudioState = useRef<{
+    phase: FastMoneyView["phase"];
+    revealIndex: number;
+    outcome: FastMoneyView["outcome"];
+  } | null>(null);
+
+  useEffect(() => {
+    if (!game) return;
+    const previous = previousAudioState.current;
+    const attemptStarted = (game.phase === "active-one" || game.phase === "active-two")
+      && game.phase !== previous?.phase;
+    if (attemptStarted) void gameAudio.play("fast-money-start");
+    if (previous && game.revealIndex > previous.revealIndex) {
+      void gameAudio.play(game.phase === "complete" && game.outcome === "win"
+        ? "fast-money-win"
+        : "fast-money-reveal");
+    }
+    previousAudioState.current = {
+      phase: game.phase,
+      revealIndex: game.revealIndex,
+      outcome: game.outcome,
+    };
+  }, [game]);
+
+  if (!game) return null;
   if (game.phase === "selecting") return <HostSelection room={room} game={game} />;
   if (game.phase === "ready-one" || game.phase === "ready-two") return <HostReady game={game} room={room} />;
   if (game.phase === "active-one" || game.phase === "active-two") return <HostActive game={game} />;
