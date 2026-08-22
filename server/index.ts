@@ -800,23 +800,35 @@ io.on('connection', (socket) => {
     if (room) setRoomTyping(room, socket.id, details.team, details.isTyping)
   })
 
-  socket.on('feud:open-play-pass', (reply) => {
+  socket.on('feud:open-play-pass', (details, reply) => {
     const room = roomFor(socket.id)
     if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can open a play/pass huddle.' })
     if (room.phase !== 'playing' || room.config.kind !== 'feud') {
       return reply({ ok: false, error: 'Start a Family Feud game before opening a play/pass huddle.' })
     }
-    const winner = room.buzzer.winner
-    const activePlayer = winner ? room.participants.get(winner.participantId) : undefined
-    if (!winner || activePlayer?.team !== winner.team) {
+    const team = isRecord(details) && isTeamId(details.team) ? details.team : null
+    if (!team) return reply({ ok: false, error: 'Choose a valid team for the play/pass poll.' })
+    if (room.playPass.status !== 'closed') {
+      return reply({ ok: false, error: 'A play/pass poll is already active. Cancel it before opening another.' })
+    }
+    if (!room.buzzer.winner) {
       return reply({ ok: false, error: 'Finish the face-off before opening the play/pass huddle.' })
+    }
+    const activePlayerId = room.buzzer.representatives[team]
+    const activePlayer = activePlayerId ? room.participants.get(activePlayerId) : undefined
+    if (
+      activePlayer?.team !== team ||
+      !activePlayerId ||
+      !connectedParticipantIds(room).has(activePlayerId)
+    ) {
+      return reply({ ok: false, error: `Choose a connected face-off representative for ${team === 'one' ? room.config.teamOne : room.config.teamTwo} before opening its poll.` })
     }
 
     room.chatLockedTeam = null
     room.playPass = {
       status: 'open',
-      team: winner.team,
-      activePlayerId: winner.participantId,
+      team,
+      activePlayerId,
       votes: new Map(),
       decision: null,
       controllingTeam: null,

@@ -64,8 +64,8 @@ const armBuzzer = (socket: TestSocket) =>
   result<RoomSnapshot>((reply) => socket.emit("buzzer:arm", reply));
 const pressBuzzer = (socket: TestSocket) =>
   result((reply) => socket.emit("buzzer:press", reply));
-const openPoll = (socket: TestSocket) =>
-  result<RoomSnapshot>((reply) => socket.emit("feud:open-play-pass", reply));
+const openPoll = (socket: TestSocket, team: TeamId) =>
+  result<RoomSnapshot>((reply) => socket.emit("feud:open-play-pass", { team }, reply));
 const decide = (socket: TestSocket, choice: "play" | "pass") =>
   result<RoomSnapshot>((reply) => socket.emit("feud:decide-play-pass", choice, reply));
 const advanceTurn = (socket: TestSocket) =>
@@ -138,7 +138,7 @@ try {
 
   await armBuzzer(host);
   await pressBuzzer(avery);
-  await openPoll(host);
+  await openPoll(host, "one");
   const playing = await decide(avery, "play");
   assert.equal(playing.feudTurns.activeTeam, "one");
   assert.equal(playing.feudTurns.teams.one.currentPlayerId, ids.bailey);
@@ -187,11 +187,13 @@ try {
 
   await armBuzzer(host);
   await pressBuzzer(avery);
-  await openPoll(host);
-  const passed = await decide(avery, "pass");
-  assert.equal(passed.feudTurns.activeTeam, "two");
-  assert.equal(passed.feudTurns.teams.two.currentPlayerId, ids.ellis);
-  assert.equal(passed.feudTurns.teams.two.nextPlayerId, ids.devon);
+  const openedForNonBuzzingTeam = await openPoll(host, "two");
+  assert.equal(openedForNonBuzzingTeam.playPass.activePlayerId, ids.devon);
+  assert.equal(openedForNonBuzzingTeam.buzzer.winner?.participantId, ids.avery);
+  const played = await decide(devon, "play");
+  assert.equal(played.feudTurns.activeTeam, "two");
+  assert.equal(played.feudTurns.teams.two.currentPlayerId, ids.ellis);
+  assert.equal(played.feudTurns.teams.two.nextPlayerId, ids.devon);
 
   console.log(
     "Family Feud turn order synchronizes Play/Pass activation and handoff, host advancement and overrides, disconnect skipping, and reconnect recovery.",

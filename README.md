@@ -72,6 +72,8 @@ Before opening a room, the host can use **Build or edit** to author a question p
 
 Each team receives a server-authoritative answering order when the game starts. After Play/Pass, normal play begins with the teammate after the controlling team's face-off representative. Correct answer reveals and the first two strikes advance the order automatically; the third strike pauses the rotation for the steal. Moderator, player, and presenter views show who is answering and who is on deck. The moderator can advance or select any connected teammate manually, and disconnected players are skipped without losing their roster position if they reconnect.
 
+After resolving the face-off answers, the moderator explicitly opens the Play/Pass poll for either team; the first buzzer remains recorded even when the other team won the face-off. The selected team's face-off representative makes the final Play/Pass call, and that decision activates the appropriate answering order.
+
 The importer also accepts the alternate host format built around `rounds[].question` and `answers[].ans` / `pnt`. Those regular rounds are converted to the Wangz game-pack format and can be edited or exported normally after import. Five-question `final_round` data and its two `final_round_timers` are imported into Fast Money; `settings` and per-round `multiply` remain ignored.
 
 - Click an answer or press `1`–`8` to reveal it.

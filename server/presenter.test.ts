@@ -95,6 +95,7 @@ for (const state of [lobby, feud]) {
 assert.deepEqual(lobby.participants, [{ name: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' }, { name: 'Blake', avatarId: null, team: 'two' }])
 assert.equal(lobby.teamRevealRevision, 2)
 assert.deepEqual(feud.decision.activePlayer, { name: 'Avery', avatarId: 'contestants/rocket.webp' })
+assert.equal(feud.decision.team, 'one')
 assert.deepEqual(feud.turn, {
   activeTeam: 'one',
   currentPlayer: { name: 'Avery', avatarId: 'contestants/rocket.webp' },
