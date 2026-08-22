@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { avatarFor, initials } from "./avatarCatalog";
+import { restoreManagedFormInputFocus } from "./formFocus";
 import { gameAudio } from "./gameAudio";
 import { roomClient } from "./roomClient";
 import type {
@@ -136,21 +137,50 @@ function AnswerForm({
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [focusRevision, setFocusRevision] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+  const selectTextOnFocus = useRef(false);
   const question = game.currentQuestionIndex === null ? null : game.questions[game.currentQuestionIndex];
   const inputBlocked = busy;
   const firstResponse = game.currentContestant === 1 ? question?.responses[0] : null;
 
+  useEffect(() => {
+    if (busy) return;
+    const frame = window.requestAnimationFrame(() => {
+      restoreManagedFormInputFocus({
+        input: inputRef.current,
+        activeElement: document.activeElement,
+        body: document.body,
+        isWithinForm: (element) => Boolean(
+          element && formRef.current?.contains(element as Node),
+        ),
+        selectText: selectTextOnFocus.current,
+      });
+      selectTextOnFocus.current = false;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [busy, focusRevision]);
+
+  const requestInputFocus = (selectText = false) => {
+    selectTextOnFocus.current = selectText;
+    setFocusRevision((current) => current + 1);
+  };
+
   const run = async (command: FastMoneyCommand) => {
     setBusy(true);
     setError("");
+    let selectText = false;
     try {
       await roomClient.fastMoneyAction(command);
       setAnswer("");
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "That answer did not register.";
       setError(message);
+      selectText = true;
     } finally {
       setBusy(false);
+      requestInputFocus(selectText);
     }
   };
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -172,14 +202,14 @@ function AnswerForm({
           <small>Keep this off the presenter screen. A matching answer will trigger the repeat buzzer.</small>
         </aside>
       )}
-      <form onSubmit={submit}>
+      <form ref={formRef} onSubmit={submit}>
         <label htmlFor="host-fast-money-answer">Spoken answer</label>
         <input
+          ref={inputRef}
           id="host-fast-money-answer"
           value={answer}
           onChange={(event) => setAnswer(event.target.value)}
           maxLength={100}
-          autoFocus
           autoComplete="off"
           placeholder="Type the contestant’s spoken answer"
           disabled={inputBlocked}
