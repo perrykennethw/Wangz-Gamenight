@@ -66,6 +66,10 @@ All shipped cues are original procedural tones synthesized at runtime by the Web
 
 The moderator can start a synchronized 5-, 25-, 30-, or 40-second timer from the lobby or either game. Starting a preset while another timer is running deliberately replaces it; **Stop & reset** clears it for everyone. The server owns the start time and deadline, so host, player, reconnecting, and presenter views all render the same countdown. Expiration is a visible notification only—it does not add a strike, close input, or advance the game.
 
+## Playing again in the same room
+
+At the end of Family Feud, Fast Money, or Spin & Solve, the host can choose **Play again in this room** to return everyone to the lobby without changing the room code, player identities, or team assignments. **Change game or pack** opens next-game setup while connected players and the presenter wait in the existing lobby. Game state and timers reset completely; team chat history stays by default, and the host can clear both histories from the lobby before starting again.
+
 ## Family Feud host controls
 
 Before opening a room, the host can use **Build or edit** to author a question pack or upload a previously exported `.json` pack. Builder drafts save in that browser automatically; **Download JSON** creates a portable copy. The server validates and snapshots the selected pack when the room opens, so later draft edits do not change a game in progress.

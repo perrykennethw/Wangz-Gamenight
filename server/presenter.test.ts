@@ -14,6 +14,7 @@ const config = {
 const room: RoomSnapshot = {
   code: 'ABCDE',
   phase: 'playing',
+  gameRevision: 1,
   config,
   participants: [
     { id: 'private-player-id', name: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' },
