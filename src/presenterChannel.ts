@@ -242,7 +242,11 @@ export function createFastMoneyPresentation(
     currentQuestionIndex: null,
     questions,
     combinedScore,
-    subtotals: room.game.phase === "complete" ? [...room.game.subtotals] : [null, null],
+    subtotals: room.game.phase === "complete"
+      ? [...room.game.subtotals]
+      : room.game.phase === "reveal-one" && room.game.revealIndex === 4
+        ? [room.game.subtotals[0], null]
+        : [null, null],
     isIsolated: false,
   };
   return {

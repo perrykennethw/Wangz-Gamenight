@@ -325,10 +325,25 @@ export function applyFastMoneyCommand(
   if (command.type === 'lock-review') {
     const issue = requireHost(actor)
     if (issue) return { ok: false, error: issue }
-    if (next.phase === 'review-one') next.phase = 'ready-two'
+    if (next.phase === 'review-one') next.phase = 'reveal-one'
     else if (next.phase === 'review-two') next.phase = 'reveal'
     else return { ok: false, error: 'Finish an attempt before locking its scores.' }
+    next.revealIndex = -1
     next.timer = idleTimer()
+    return { ok: true, state: next }
+  }
+
+  if (command.type === 'finish-first-reveal' || command.type === 'skip-first-reveal') {
+    const issue = requireHost(actor)
+    if (issue) return { ok: false, error: issue }
+    if (next.phase !== 'reveal-one') {
+      return { ok: false, error: 'Finish contestant one’s review before advancing to contestant two.' }
+    }
+    if (command.type === 'finish-first-reveal' && next.revealIndex !== 4) {
+      return { ok: false, error: 'Reveal all five answers before calling contestant two, or skip the reveal.' }
+    }
+    next.phase = 'ready-two'
+    next.revealIndex = -1
     return { ok: true, state: next }
   }
 
@@ -362,9 +377,11 @@ export function applyFastMoneyCommand(
   if (command.type === 'reveal-next') {
     const issue = requireHost(actor)
     if (issue) return { ok: false, error: issue }
-    if (next.phase !== 'reveal') return { ok: false, error: 'Both attempts must be locked before the reveal.' }
+    if (next.phase !== 'reveal-one' && next.phase !== 'reveal') {
+      return { ok: false, error: 'Lock an attempt before revealing its scores.' }
+    }
     next.revealIndex = Math.min(4, next.revealIndex + 1)
-    if (next.revealIndex === 4) next.phase = 'complete'
+    if (next.phase === 'reveal' && next.revealIndex === 4) next.phase = 'complete'
     return { ok: true, state: next }
   }
 
@@ -393,7 +410,8 @@ function phaseMessage(state: FastMoneyState): string {
     case 'ready-one': return 'Contestant one is headed to the clock.'
     case 'active-one': return 'Contestant one is answering five questions.'
     case 'review-one': return 'The host is checking contestant one’s answers.'
-    case 'ready-two': return 'Contestant two is up. First answers stay hidden.'
+    case 'reveal-one': return 'Let’s see how contestant one scored.'
+    case 'ready-two': return 'Contestant two is up. First answers are sealed again.'
     case 'active-two': return 'Contestant two is answering the same five questions.'
     case 'review-two': return 'The host is checking contestant two’s answers.'
     case 'reveal': return 'Survey says… let’s build the total.'
@@ -421,11 +439,13 @@ export function viewFastMoney(
   const currentQuestionIndex = currentContestant === null
     ? null
     : state.attempts[currentContestant].queue[0] ?? null
-  const publicReveal = state.phase === 'reveal' || state.phase === 'complete'
+  const firstReveal = state.phase === 'reveal-one'
+  const finalReveal = state.phase === 'reveal' || state.phase === 'complete'
   const isIsolated = viewerRole === 'contestant-two' && (
     state.phase === 'ready-one'
     || state.phase === 'active-one'
     || state.phase === 'review-one'
+    || state.phase === 'reveal-one'
     || state.phase === 'ready-two'
   )
 
@@ -437,10 +457,10 @@ export function viewFastMoney(
   }
 
   const questions = pack.questions.map((question, questionIndex) => {
-    const revealed = publicReveal && questionIndex <= state.revealIndex
+    const revealed = questionIndex <= state.revealIndex && (finalReveal || (firstReveal && !isIsolated))
     const canSeePrompt = actor.role === 'host' || revealed
     const canSeeFirst = actor.role === 'host' || revealed
-    const canSeeSecond = actor.role === 'host' || revealed
+    const canSeeSecond = actor.role === 'host' || (finalReveal && revealed)
     return {
       id: question.id,
       prompt: canSeePrompt ? question.prompt : null,
@@ -480,9 +500,14 @@ export function viewFastMoney(
     answeredCount: currentContestant === null
       ? 0
       : state.attempts[currentContestant].responses.filter(Boolean).length,
+    attemptDurations: [pack.timers.first, pack.timers.second],
     timer: { ...state.timer },
     subtotals: [
-      actor.role === 'host' || state.phase === 'complete' ? rawSubtotals[0] : null,
+      actor.role === 'host'
+        || state.phase === 'complete'
+        || (firstReveal && state.revealIndex === 4 && !isIsolated)
+        ? rawSubtotals[0]
+        : null,
       actor.role === 'host' || state.phase === 'complete' ? rawSubtotals[1] : null,
     ],
     combinedScore: actor.role === 'host' ? rawSubtotals[0] + rawSubtotals[1] : revealedScore,

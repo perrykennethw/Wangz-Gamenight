@@ -4109,9 +4109,9 @@ function PresenterFastMoney({ state }: { state: FastMoneyPresentation }) {
       </header>
       <div className="fast-money-presenter-stage">
         <div className="fast-money-lineup fast-money-lineup--presenter">
-          <ContestantPresenterCard person={state.game.contestants[0]} order={1} />
+          <ContestantPresenterCard person={state.game.contestants[0]} order={1} durationSeconds={state.game.attemptDurations[0]} />
           <span>+</span>
-          <ContestantPresenterCard person={state.game.contestants[1]} order={2} />
+          <ContestantPresenterCard person={state.game.contestants[1]} order={2} durationSeconds={state.game.attemptDurations[1]} />
         </div>
         {(state.game.phase === "active-one" || state.game.phase === "active-two") && (
           <div className="fast-money-presenter-clock">
@@ -4128,13 +4128,15 @@ function PresenterFastMoney({ state }: { state: FastMoneyPresentation }) {
 function ContestantPresenterCard({
   person,
   order,
+  durationSeconds,
 }: {
   person: FastMoneyPresentation["game"]["contestants"][number];
   order: 1 | 2;
+  durationSeconds: number;
 }) {
   return (
     <article className={`fast-money-presenter-person fast-money-presenter-person--${order}`}>
-      <span>{order === 1 ? "20 sec" : "25 sec"}</span>
+      <span>{durationSeconds} sec</span>
       <strong>{person?.name ?? `Contestant ${order}`}</strong>
     </article>
   );

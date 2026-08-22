@@ -1041,11 +1041,13 @@ io.on('connection', (socket) => {
       if (room.game?.kind !== 'fast-money') return reply({ ok: false, error: 'Start Fast Money before using its controls.' })
       if (command.type === 'start-attempt') {
         const contestant = room.game.phase === 'ready-one' ? 0 : room.game.phase === 'ready-two' ? 1 : null
-        const participantId = contestant === null ? null : room.game.lineup[contestant]
-        const connected = participantId && [...room.connections.values()].some(
-          (candidate) => candidate.participantId === participantId,
-        )
-        if (!connected) return reply({ ok: false, error: 'That contestant is disconnected. Wait for them or choose a replacement.' })
+        if (contestant !== null) {
+          const participantId = room.game.lineup[contestant]
+          const connected = participantId && [...room.connections.values()].some(
+            (candidate) => candidate.participantId === participantId,
+          )
+          if (!connected) return reply({ ok: false, error: 'That contestant is disconnected. Wait for them or choose a replacement.' })
+        }
       }
       const expired = expireFastMoney(room.game, Date.now())
       if (expired !== room.game) room.game = expired

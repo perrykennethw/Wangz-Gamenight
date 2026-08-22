@@ -7,6 +7,7 @@ assert.notEqual(normalized, starterFeudPack)
 assert.equal(normalized.title, 'Wangz Originals')
 assert.equal(normalized.questions.length, 8)
 assert.equal(normalized.questions[0].answers[0].points, 34)
+assert.deepEqual(normalized.fastMoney?.timers, { first: 35, second: 40 })
 
 const imported = parseFeudGamePack(JSON.stringify(starterFeudPack))
 assert.deepEqual(imported, normalized)
@@ -42,6 +43,15 @@ assert.match(alternateImported.questions[0].id, /^question-1-/)
 assert.equal(alternateImported.fastMoney?.questions.length, 5)
 assert.equal(alternateImported.fastMoney?.questions[0].prompt, 'Name something people do first thing in the morning.')
 assert.deepEqual(alternateImported.fastMoney?.timers, { first: 20, second: 25 })
+
+const defaultTimersAlternate = parseFeudGamePack(JSON.stringify({
+  rounds: [{ question: 'Main question', answers: [{ ans: 'Answer', pnt: 20 }] }],
+  final_round: Array.from({ length: 5 }, (_, index) => ({
+    question: `Default timer question ${index + 1}`,
+    answers: [['Top answer', 40]],
+  })),
+}))
+assert.deepEqual(defaultTimersAlternate.fastMoney?.timers, { first: 35, second: 40 })
 
 assert.throws(
   () => parseFeudGamePack(JSON.stringify({
