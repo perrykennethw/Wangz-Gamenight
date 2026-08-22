@@ -122,16 +122,15 @@ export function FastMoneyBoard({ game }: { game: FastMoneyView }) {
 
 function AnswerForm({
   game,
-  host = false,
 }: {
   game: FastMoneyView;
-  host?: boolean;
 }) {
   const [answer, setAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const question = game.currentQuestionIndex === null ? null : game.questions[game.currentQuestionIndex];
-  const inputBlocked = busy || (!host && game.timer.status !== "running");
+  const inputBlocked = busy;
+  const firstResponse = game.currentContestant === 1 ? question?.responses[0] : null;
 
   const run = async (command: FastMoneyCommand) => {
     setBusy(true);
@@ -142,7 +141,6 @@ function AnswerForm({
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : "That answer did not register.";
       setError(message);
-      if (!host && /repeat answer/i.test(message)) void gameAudio.play("repeat-answer");
     } finally {
       setBusy(false);
     }
@@ -155,20 +153,27 @@ function AnswerForm({
   return (
     <section className="fast-money-answer-console">
       <div className="fast-money-answer-console__status">
-        <span>{host ? "Host transcription" : "Your question"}</span>
+        <span>Host transcription</span>
         <b>{game.answeredCount} of 5 answered</b>
       </div>
       <h2>{question?.prompt ?? "Listen for the next question."}</h2>
+      {game.currentContestant === 1 && (
+        <aside className="fast-money-repeat-reference" aria-label="Private repeat reference">
+          <span>Private · contestant 1 answered</span>
+          <strong>{firstResponse?.text || "No recorded answer"}</strong>
+          <small>Keep this off the presenter screen. A matching answer will trigger the repeat buzzer.</small>
+        </aside>
+      )}
       <form onSubmit={submit}>
-        <label htmlFor={host ? "host-fast-money-answer" : "player-fast-money-answer"}>Answer</label>
+        <label htmlFor="host-fast-money-answer">Spoken answer</label>
         <input
-          id={host ? "host-fast-money-answer" : "player-fast-money-answer"}
+          id="host-fast-money-answer"
           value={answer}
           onChange={(event) => setAnswer(event.target.value)}
           maxLength={100}
           autoFocus
           autoComplete="off"
-          placeholder={!host && game.timer.status !== "running" ? "Wait for the host to resume" : "Type the answer"}
+          placeholder="Type the contestant’s spoken answer"
           disabled={inputBlocked}
         />
         <button className="primary-button" disabled={inputBlocked || !answer.trim()}>Lock answer</button>
@@ -394,7 +399,7 @@ function HostActive({ game }: { game: FastMoneyView }) {
   return (
     <section className="fast-money-active-layout">
       <FastMoneyClock timer={game.timer} />
-      <AnswerForm game={game} host />
+      <AnswerForm game={game} />
       <div className="fast-money-timer-controls">
         <button onClick={() => void run({ type: game.timer.status === "paused" ? "resume-timer" : "pause-timer" })}>
           {game.timer.status === "paused" ? "Resume clock" : "Pause clock"}
@@ -536,6 +541,20 @@ function PlayerWaiting({ game }: { game: FastMoneyView }) {
   );
 }
 
+function PlayerVerbalAttempt({ game }: { game: FastMoneyView }) {
+  return (
+    <section className="fast-money-player-verbal">
+      <FastMoneyClock timer={game.timer} />
+      <div>
+        <p className="eyebrow">Your Fast Money attempt</p>
+        <h1>Answer the host<br /><em>out loud.</em></h1>
+        <p>The host will read each question and record your spoken response. Say “pass” when you want to come back to one.</p>
+        <strong>Nothing to type here — keep your attention on the host.</strong>
+      </div>
+    </section>
+  );
+}
+
 export function FastMoneyPlayer({ room }: { room: RoomSnapshot }) {
   if (room.game?.kind !== "fast-money") return null;
   const game = room.game;
@@ -552,12 +571,7 @@ export function FastMoneyPlayer({ room }: { room: RoomSnapshot }) {
   const activeForViewer = (game.phase === "active-one" && game.viewerRole === "contestant-one")
     || (game.phase === "active-two" && game.viewerRole === "contestant-two");
   if (activeForViewer) {
-    return (
-      <div className="fast-money-player-active">
-        <FastMoneyClock timer={game.timer} />
-        <AnswerForm game={game} />
-      </div>
-    );
+    return <PlayerVerbalAttempt game={game} />;
   }
   if (game.phase === "reveal" || game.phase === "complete") return <FastMoneyBoard game={game} />;
   return <PlayerWaiting game={game} />;

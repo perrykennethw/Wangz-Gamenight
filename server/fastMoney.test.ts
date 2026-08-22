@@ -55,8 +55,8 @@ rejects(player('p1'), { type: 'start-attempt' }, /only the host/i)
 run(host, { type: 'start-attempt' }, 10_000)
 assert.equal(state.timer.deadline, 30_000)
 run(host, { type: 'pause-timer' }, 11_000)
-rejects(player('p1'), { type: 'submit', answer: 'Phone' }, /resume the clock/i)
-rejects(player('p1'), { type: 'pass' }, /resume the clock/i)
+rejects(player('p1'), { type: 'submit', answer: 'Phone' }, /only the host/i)
+rejects(player('p1'), { type: 'pass' }, /only the host/i)
 run(host, { type: 'resume-timer' }, 12_000)
 
 const isolated = viewFastMoney(state, pack, participants, player('p2'))
@@ -67,12 +67,12 @@ assert.equal(isolated.questions.every((question) => question.answerOptions === n
 
 const activeOne = viewFastMoney(state, pack, participants, player('p1'))
 assert.equal(activeOne.currentQuestionIndex, 0)
-assert.equal(activeOne.questions[0].prompt, pack.questions[0].prompt)
-assert.equal(activeOne.questions[1].prompt, null)
+assert.equal(activeOne.questions.every((question) => question.prompt === null), true)
+assert.equal(activeOne.questions.every((question) => question.responses[0].text === null), true)
 assert.ok(viewFastMoney(state, pack, participants, host).questions[0].answerOptions)
 
 for (const question of pack.questions) {
-  run(player('p1'), { type: 'submit', answer: question.answers[0].label })
+  run(host, { type: 'submit', answer: question.answers[0].label })
 }
 assert.equal(state.phase, 'review-one')
 run(host, { type: 'lock-review' })
@@ -83,11 +83,20 @@ assert.deepEqual(beforeTwo.subtotals, [null, null])
 
 run(host, { type: 'start-attempt' }, 40_000)
 assert.equal(state.timer.deadline, 65_000)
-rejects(player('p2'), { type: 'submit', answer: 'Phone' }, /repeat answer/i)
+const activeTwoHost = viewFastMoney(state, pack, participants, host)
+assert.equal(activeTwoHost.questions[0].prompt, pack.questions[0].prompt)
+assert.equal(activeTwoHost.questions[0].responses[0].text, pack.questions[0].answers[0].label)
+const activeTwoContestant = viewFastMoney(state, pack, participants, player('p2'))
+assert.equal(activeTwoContestant.questions.every((question) => question.prompt === null), true)
+assert.equal(activeTwoContestant.questions.every((question) => question.responses[0].text === null), true)
+rejects(player('p2'), { type: 'submit', answer: 'Phone' }, /only the host/i)
+const deadlineBeforeRepeat = state.timer.deadline
+rejects(host, { type: 'submit', answer: 'Phone' }, /repeat answer/i)
 assert.equal(state.attempts[1].queue[0], 0)
+assert.equal(state.timer.deadline, deadlineBeforeRepeat)
 
 for (const question of pack.questions) {
-  run(player('p2'), { type: 'submit', answer: question.answers[1].label })
+  run(host, { type: 'submit', answer: question.answers[1].label })
 }
 assert.equal(state.phase, 'review-two')
 run(host, {

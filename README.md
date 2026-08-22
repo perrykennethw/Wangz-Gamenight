@@ -86,8 +86,8 @@ The importer also accepts the alternate host format built around `rounds[].quest
 ## Fast Money finale
 
 - The winning team votes for two contestants; the host confirms the pair and their 20-/25-second order.
-- Each active contestant can answer from their phone, while the host has matching transcription, timer, and score-review controls.
-- Contestant two receives an isolated server-redacted view until their attempt begins. First-contestant responses and the answer catalog are never sent in that snapshot.
+- The host reads each question aloud and records the contestants' spoken answers or passes. Contestant phones show only the timer and verbal-play instructions; they cannot submit answers.
+- During contestant two's attempt, the host privately sees contestant one's answer for the current question as a repeat reference. Player and presenter snapshots remain server-redacted until the public reveal.
 - Exact normalized labels and pack-authored aliases trigger the repeat cue. The host can correct transcription, survey matches, and repeat rulings before locking each attempt.
 - The final board reveals both columns one row at a time and builds the combined score toward 200.
 
