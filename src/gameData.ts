@@ -166,11 +166,11 @@ export const starterFeudPack: FeudGamePack = {
 };
 
 export const multiplierForRound = (round: number): number => {
-  if (round >= 4) {
+  if (round >= 5) {
     return 3;
   }
 
-  if (round === 3) {
+  if (round >= 3) {
     return 2;
   }
 

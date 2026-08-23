@@ -62,7 +62,23 @@ const room: RoomSnapshot = {
     deadline: 26_000,
   },
   viewer: { role: 'host' },
-  game: null,
+  game: {
+    kind: 'feud',
+    round: 1,
+    questionIndex: 0,
+    multiplier: 1,
+    revealed: [0],
+    strikes: 1,
+    strikeRevision: 1,
+    phase: 'playing',
+    controllingTeam: 'one',
+    originalControllingTeam: 'one',
+    stealOutcome: null,
+    selectedAwardTeam: 'one',
+    scores: { one: 34, two: 20 },
+    roundPot: 34,
+    winnerTeam: null,
+  },
 }
 
 assert.equal(presenterRoomCodeFromSearch('?present=abc12'), 'ABC12')
@@ -73,14 +89,7 @@ const lobby = createLobbyPresentation(room, 2)
 const feud = createFeudPresentation({
   room,
   config,
-  round: 1,
-  multiplier: 1,
   question: config.pack.questions[0],
-  revealed: [0],
-  strikes: 1,
-  scores: [34, 20],
-  roundPot: 34,
-  winner: null,
 })
 
 for (const state of [lobby, feud]) {
