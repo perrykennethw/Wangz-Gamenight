@@ -28,8 +28,6 @@
     "test:player-preferences": "tsx server/playerIdentityPreference.test.ts",
     "test:turn-order": "tsx server/feudTurnOrder.test.ts",
     "test:turn-order-integration": "tsx server/feudTurnOrder.integration.ts",
-    "test:feud-round": "tsx server/feudRound.test.ts",
-    "test:feud-round-integration": "tsx server/feudRound.integration.ts",
     "server": "tsx server/index.ts",
     "start": "node server-dist/server/index.js",
     "preview": "vite preview"

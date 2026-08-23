@@ -6,7 +6,6 @@ import type {
   ClientToServerEvents,
   GameConfig,
   FastMoneyCommand,
-  FeudRoundCommand,
   JoinRoomDetails,
   PlayPassChoice,
   RoomResult,
@@ -173,14 +172,6 @@ class RoomClient {
   fastMoneyAction(command: FastMoneyCommand): Promise<RoomSnapshot> {
     return new Promise((resolve, reject) => {
       this.socket.emit("fast-money:action", command, (result) =>
-        this.finish(result, resolve, reject),
-      );
-    });
-  }
-
-  feudRoundAction(command: FeudRoundCommand): Promise<RoomSnapshot> {
-    return new Promise((resolve, reject) => {
-      this.socket.emit("feud:round-action", command, (result) =>
         this.finish(result, resolve, reject),
       );
     });

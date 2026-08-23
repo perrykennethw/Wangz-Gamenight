@@ -35,12 +35,6 @@ export interface FeudPresentation extends PresentationBase {
   question: { answers: FeudAnswer[] };
   revealed: number[];
   strikes: number;
-  strikeRevision: number;
-  phase: "faceoff" | "playing" | "steal";
-  controllingTeam: TeamId | null;
-  originalControllingTeam: TeamId | null;
-  stealOutcome: "success" | "failed" | null;
-  selectedAwardTeam: TeamId | null;
   scores: [number, number];
   roundPot: number;
   buzzer: {
@@ -82,7 +76,14 @@ export type PresentationState =
 interface FeudBoardInput {
   room: RoomSnapshot;
   config: FeudGameConfig;
+  round: number;
+  multiplier: number;
   question: { prompt: string; answers: FeudAnswer[] };
+  revealed: number[];
+  strikes: number;
+  scores: [number, number];
+  roundPot: number;
+  winner: { name: string; score: number } | null;
 }
 
 type PresentationMessage =
@@ -133,10 +134,6 @@ export function createLobbyPresentation(
 export function createFeudPresentation(
   input: FeudBoardInput,
 ): FeudPresentation {
-  if (input.room.game?.kind !== "feud") {
-    throw new Error("A Family Feud round must be active before publishing its board.");
-  }
-  const game = input.room.game;
   const activePlayer = input.room.participants.find(
     (participant) => participant.id === input.room.playPass.activePlayerId,
   );
@@ -157,25 +154,19 @@ export function createFeudPresentation(
     timer: { ...input.room.timer },
     title: input.config.pack.title,
     winningScore: input.config.winningScore,
-    round: game.round,
-    multiplier: game.multiplier,
+    round: input.round,
+    multiplier: input.multiplier,
     question: {
       answers: input.question.answers.map(({ id, label, points }, index) =>
-        game.revealed.includes(index)
+        input.revealed.includes(index)
           ? { id, label, points }
           : { id, label: "", points: 0 },
       ),
     },
-    revealed: [...game.revealed],
-    strikes: game.strikes,
-    strikeRevision: game.strikeRevision,
-    phase: game.phase,
-    controllingTeam: game.controllingTeam,
-    originalControllingTeam: game.originalControllingTeam,
-    stealOutcome: game.stealOutcome,
-    selectedAwardTeam: game.selectedAwardTeam,
-    scores: [game.scores.one, game.scores.two],
-    roundPot: game.roundPot,
+    revealed: [...input.revealed],
+    strikes: input.strikes,
+    scores: [...input.scores],
+    roundPot: input.roundPot,
     buzzer: {
       status: input.room.buzzer.status,
       winner: input.room.buzzer.winner
@@ -202,12 +193,7 @@ export function createFeudPresentation(
         ? { name: nextTurnPlayer.name, avatarId: nextTurnPlayer.avatarId }
         : null,
     },
-    winner: game.winnerTeam
-      ? {
-          name: game.winnerTeam === "one" ? input.config.teamOne : input.config.teamTwo,
-          score: game.scores[game.winnerTeam],
-        }
-      : null,
+    winner: input.winner ? { ...input.winner } : null,
   };
 }
 
