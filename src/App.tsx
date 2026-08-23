@@ -144,18 +144,6 @@ interface GameProps {
   onChangeGame: () => Promise<void>;
 }
 
-type PrototypeVariant = "A" | "B" | "C";
-
-interface PlayerBuzzerVariantProps {
-  room: RoomSnapshot;
-  participantId: string;
-  team: TeamId;
-  isBuzzing: boolean;
-  error: string;
-  onBuzz: () => void;
-  chat: React.ReactNode;
-}
-
 const Bolt = ({ size = 18 }: BoltProps) => (
   <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
     <path
@@ -2250,66 +2238,6 @@ interface PlayerRoomProps {
   onExit: () => void;
 }
 
-const buzzerVariantNames: Record<PrototypeVariant, string> = {
-  A: "Stage + chat",
-  B: "Full takeover",
-  C: "Buzzer dock",
-};
-
-function getPrototypeVariant(): PrototypeVariant {
-  const candidate = new URLSearchParams(window.location.search)
-    .get("variant")
-    ?.toUpperCase();
-  return candidate === "B" || candidate === "C" ? candidate : "A";
-}
-
-function PrototypeSwitcher({
-  current,
-  onChange,
-}: {
-  current: PrototypeVariant;
-  onChange: (variant: PrototypeVariant) => void;
-}) {
-  const variants: PrototypeVariant[] = ["A", "B", "C"];
-  const cycle = (direction: -1 | 1) => {
-    const currentIndex = variants.indexOf(current);
-    onChange(
-      variants[(currentIndex + direction + variants.length) % variants.length],
-    );
-  };
-
-  useEffect(() => {
-    if (!import.meta.env.DEV) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, [contenteditable]")) return;
-      if (event.key === "ArrowLeft") cycle(-1);
-      if (event.key === "ArrowRight") cycle(1);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  });
-
-  if (!import.meta.env.DEV) return null;
-
-  return (
-    <nav className="prototype-switcher" aria-label="Buzzer prototype variants">
-      <button onClick={() => cycle(-1)} aria-label="Previous prototype variant">
-        ←
-      </button>
-      <span>
-        <small>Prototype</small>
-        <b>
-          {current} — {buzzerVariantNames[current]}
-        </b>
-      </span>
-      <button onClick={() => cycle(1)} aria-label="Next prototype variant">
-        →
-      </button>
-    </nav>
-  );
-}
-
 function buzzerRepresentative(room: RoomSnapshot, team: TeamId) {
   const participantId = room.buzzer.representatives[team];
   return room.participants.find(
@@ -2428,123 +2356,167 @@ function LobbyAvatarEditor({ room, participantId }: { room: RoomSnapshot; partic
   );
 }
 
-function PlayerBuzzerVariantA({
+function PlayerChatDrawer({
   room,
-  participantId,
   team,
-  isBuzzing,
-  error,
-  onBuzz,
-  chat,
-}: PlayerBuzzerVariantProps) {
-  const copy = playerBuzzerCopy(room, participantId);
-  const isRepresentative = room.buzzer.representatives[team] === participantId;
-  const canBuzz = room.buzzer.status === "armed" && isRepresentative;
+  participantId,
+  onSendMessage,
+  phaseKey,
+}: {
+  room: RoomSnapshot;
+  team: TeamId;
+  participantId: string;
+  onSendMessage: (message: string) => Promise<void>;
+  phaseKey: string;
+}) {
+  const [isMobile, setIsMobile] = useState(() =>
+    window.matchMedia("(max-width: 760px)").matches,
+  );
+  const [open, setOpen] = useState(() => !isMobile);
+  const [seenMessageCount, setSeenMessageCount] = useState(
+    room.messages.length,
+  );
+  const locked = room.chat.lockedTeam === team;
+  const unreadCount = Math.max(0, room.messages.length - seenMessageCount);
+  const contentId = `player-team-chat-${team}`;
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 760px)");
+    const syncViewport = () => {
+      setIsMobile(media.matches);
+      setOpen(!media.matches);
+    };
+    syncViewport();
+    media.addEventListener("change", syncViewport);
+    return () => media.removeEventListener("change", syncViewport);
+  }, []);
+
+  useEffect(() => {
+    if (isMobile) setOpen(false);
+  }, [isMobile, phaseKey]);
+
+  useEffect(() => {
+    if (open) setSeenMessageCount(room.messages.length);
+  }, [open, room.messages.length]);
+
+  if (locked) {
+    return (
+      <aside className="player-chat-locked" role="status">
+        <span aria-hidden="true">◆</span>
+        <div>
+          <strong>Team huddle paused</strong>
+          <small>{room.chat.reason ?? "Chat reopens after this question."}</small>
+        </div>
+      </aside>
+    );
+  }
+
   return (
-    <div className="player-room-layout player-room-layout--buzzer-stage">
-      <section
-        className={`buzzer-stage buzzer-stage--${team} buzzer-state--${room.buzzer.status} ${isRepresentative ? "is-representative" : "is-spectator"}`}
+    <section className={`player-chat-drawer ${open ? "is-open" : ""}`}>
+      <button
+        className="player-chat-drawer__toggle"
+        type="button"
+        aria-expanded={open}
+        aria-controls={contentId}
+        onClick={() => setOpen((current) => !current)}
       >
-        <span>{copy.kicker}</span>
-        <button
-          onClick={onBuzz}
-          disabled={!canBuzz || isBuzzing}
-          aria-label={
-            canBuzz ? `Buzz for ${teamName(room, team)}` : copy.headline
-          }
-        >
-          <i aria-hidden="true">
-            <Bolt size={34} />
-          </i>
-          <strong>{isBuzzing ? "Sending…" : copy.headline}</strong>
-          <small>{copy.detail}</small>
-        </button>
-        {error && <p role="alert">{error}</p>}
-      </section>
-      {chat}
-    </div>
-  );
-}
-
-function PlayerBuzzerVariantB({
-  room,
-  participantId,
-  team,
-  isBuzzing,
-  error,
-  onBuzz,
-  chat,
-}: PlayerBuzzerVariantProps) {
-  const copy = playerBuzzerCopy(room, participantId);
-  const isRepresentative = room.buzzer.representatives[team] === participantId;
-  const canBuzz = room.buzzer.status === "armed" && isRepresentative;
-  return (
-    <div
-      className={`buzzer-takeover buzzer-takeover--${team} buzzer-state--${room.buzzer.status} ${isRepresentative ? "is-representative" : "is-spectator"}`}
-    >
-      <section>
         <span>
-          {teamName(room, team)} · {copy.kicker}
+          <strong>Team chat</strong>
+          <small>{open ? "Close huddle" : "Open your private huddle"}</small>
         </span>
-        <button onClick={onBuzz} disabled={!canBuzz || isBuzzing}>
-          <i aria-hidden="true">
-            <Bolt size={46} />
-          </i>
-          <strong>{isBuzzing ? "Sending…" : copy.headline}</strong>
-          <small>{copy.detail}</small>
-        </button>
-        {error && <p role="alert">{error}</p>}
-      </section>
-      <details>
-        <summary>
-          Team chat <span>Open while you wait</span>
-        </summary>
-        {chat}
-      </details>
-    </div>
-  );
-}
-
-function PlayerBuzzerVariantC({
-  room,
-  participantId,
-  team,
-  isBuzzing,
-  error,
-  onBuzz,
-  chat,
-}: PlayerBuzzerVariantProps) {
-  const copy = playerBuzzerCopy(room, participantId);
-  const isRepresentative = room.buzzer.representatives[team] === participantId;
-  const canBuzz = room.buzzer.status === "armed" && isRepresentative;
-  return (
-    <div className="buzzer-dock-layout">
-      <div className="player-room-layout">
-        <aside className={`my-team-card my-team-card--${team}`}>
-          <span>Your team · buzzer below</span>
-          <h1>{teamName(room, team)}</h1>
-          <div className="player-chips">
-            {room.participants
-              .filter((player) => player.team === team)
-              .map((player) => (
-                <PlayerIdentity key={player.id} participant={player} compact />
-              ))}
-          </div>
-        </aside>
-        {chat}
+        {unreadCount > 0 && !open ? (
+          <b aria-label={`${unreadCount} unread team chat message${unreadCount === 1 ? "" : "s"}`}>
+            {unreadCount > 99 ? "99+" : unreadCount}
+          </b>
+        ) : (
+          <i aria-hidden="true">{open ? "−" : "+"}</i>
+        )}
+      </button>
+      <div id={contentId} hidden={!open}>
+        <TeamChat
+          team={team}
+          teamLabel={teamName(room, team)}
+          messages={room.messages}
+          participantId={participantId}
+          onSend={onSendMessage}
+        />
       </div>
-      <section
-        className={`player-buzzer-dock player-buzzer-dock--${team} buzzer-state--${room.buzzer.status} ${isRepresentative ? "is-representative" : "is-spectator"}`}
+    </section>
+  );
+}
+
+function PlayerFeudExperience({
+  room,
+  participantId,
+  team,
+  isBuzzing,
+  error,
+  onBuzz,
+  onSendMessage,
+  phaseKey,
+}: {
+  room: RoomSnapshot;
+  participantId: string;
+  team: TeamId;
+  isBuzzing: boolean;
+  error: string;
+  onBuzz: () => void;
+  onSendMessage: (message: string) => Promise<void>;
+  phaseKey: string;
+}) {
+  const copy = playerBuzzerCopy(room, participantId);
+  const isRepresentative = room.buzzer.representatives[team] === participantId;
+  const buzzerIsPrimary = room.buzzer.status === "armed" && isRepresentative;
+  const playPassIsPrimary = room.playPass.status === "open";
+  const answeringIsPrimary = Boolean(room.feudTurns.activeTeam) && !playPassIsPrimary;
+
+  const buzzer = buzzerIsPrimary ? (
+    <section className={`player-buzzer-action player-buzzer-action--${team}`}>
+      <span>{teamName(room, team)} · {copy.kicker}</span>
+      <button
+        type="button"
+        onClick={onBuzz}
+        disabled={isBuzzing}
+        aria-label={`Buzz for ${teamName(room, team)}`}
       >
-        <span>
-          <small>{copy.kicker}</small>
-          <b>{copy.detail}</b>
-        </span>
-        <button onClick={onBuzz} disabled={!canBuzz || isBuzzing}>
-          <Bolt size={22} /> {isBuzzing ? "Sending…" : copy.headline}
-        </button>
-        {error && <p role="alert">{error}</p>}
-      </section>
+        <i aria-hidden="true"><Bolt size={36} /></i>
+        <strong>{isBuzzing ? "Sending…" : copy.headline}</strong>
+        <small>{copy.detail}</small>
+      </button>
+      {error && <p role="alert">{error}</p>}
+    </section>
+  ) : (
+    <section
+      className={`player-buzzer-status player-buzzer-status--${team}`}
+      aria-live="polite"
+      aria-label="Buzzer status"
+    >
+      <i aria-hidden="true"><Bolt size={18} /></i>
+      <span>
+        <small>{copy.kicker}</small>
+        <strong>{copy.headline}</strong>
+        <b>{copy.detail}</b>
+      </span>
+    </section>
+  );
+
+  return (
+    <div className="player-feud-experience">
+      {playPassIsPrimary && <PlayPassPanel room={room} />}
+      {answeringIsPrimary && (
+        <PlayerFeudTurnCard room={room} team={team} participantId={participantId} />
+      )}
+      {buzzer}
+      {!playPassIsPrimary && !answeringIsPrimary && !buzzerIsPrimary && (
+        <PlayerFeudTurnCard room={room} team={team} participantId={participantId} />
+      )}
+      <PlayerChatDrawer
+        room={room}
+        team={team}
+        participantId={participantId}
+        onSendMessage={onSendMessage}
+        phaseKey={phaseKey}
+      />
     </div>
   );
 }
@@ -2561,8 +2533,41 @@ function PlayerRoom({
   const [error, setError] = useState("");
   const [buzzError, setBuzzError] = useState("");
   const [isBuzzing, setIsBuzzing] = useState(false);
-  const [variant, setVariant] = useState<PrototypeVariant>(getPrototypeVariant);
+  const primaryActionRef = useRef<HTMLDivElement>(null);
+  const previousPhaseKey = useRef("");
   const viewer = room.viewer;
+  const viewerTeam = viewer.role === "player" ? viewer.team : null;
+
+  const phaseKey = room.config.kind === "spin-solve" && room.game?.kind === "spin-solve"
+    ? `spin:${room.game.phase}:${room.game.activeTeam}:${room.game.spinId}`
+    : room.game?.kind === "fast-money"
+      ? `fast-money:${room.game.phase}:${room.game.viewerRole}:${room.game.isIsolated}:${room.game.currentQuestionIndex ?? "none"}`
+      : `feud:${room.playPass.status}:${room.buzzer.status}:${room.buzzer.winner?.participantId ?? "none"}:${room.feudTurns.activeTeam ?? "none"}:${viewerTeam ? room.feudTurns.teams[viewerTeam].currentPlayerId ?? "none" : "none"}`;
+
+  useEffect(() => {
+    if (room.phase !== "playing") {
+      previousPhaseKey.current = phaseKey;
+      return;
+    }
+    if (!previousPhaseKey.current) {
+      previousPhaseKey.current = phaseKey;
+      return;
+    }
+    if (previousPhaseKey.current === phaseKey) return;
+    previousPhaseKey.current = phaseKey;
+    if (!window.matchMedia("(max-width: 760px)").matches) return;
+
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const frame = window.requestAnimationFrame(() => {
+      primaryActionRef.current?.scrollIntoView({
+        behavior: reduceMotion ? "auto" : "smooth",
+        block: "start",
+      });
+      primaryActionRef.current?.focus({ preventScroll: true });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [phaseKey, room.phase]);
+
   if (viewer.role !== "player") return null;
 
   const chooseTeam = async (team: TeamId) => {
@@ -2574,13 +2579,6 @@ function PlayerRoom({
         cause instanceof Error ? cause.message : "Could not join that team.",
       );
     }
-  };
-
-  const changeVariant = (nextVariant: PrototypeVariant) => {
-    const url = new URL(window.location.href);
-    url.searchParams.set("variant", nextVariant);
-    window.history.replaceState({}, "", url);
-    setVariant(nextVariant);
   };
 
   const buzz = async () => {
@@ -2689,55 +2687,37 @@ function PlayerRoom({
             />
           </div>
         ) : room.config.kind === "spin-solve" ? (
-          <div className="player-room-layout player-room-layout--game">
+          <div
+            className="player-primary-action player-room-layout player-room-layout--game"
+            ref={primaryActionRef}
+            tabIndex={-1}
+          >
             <PlayerSpinSolve room={room} onAction={onGameAction} />
-            <TeamChat
+            <PlayerChatDrawer
+              room={room}
               team={viewer.team}
-              teamLabel={teamName(room, viewer.team)}
-              messages={room.messages}
               participantId={viewer.participantId}
-              onSend={onSendMessage}
+              onSendMessage={onSendMessage}
+              phaseKey={phaseKey}
             />
           </div>
         ) : room.game?.kind === "fast-money" ? (
-          <FastMoneyPlayer room={room} />
+          <div className="player-primary-action" ref={primaryActionRef} tabIndex={-1}>
+            <FastMoneyPlayer room={room} />
+          </div>
         ) : (
-          <>
-            {(() => {
-              const chat = (
-                <div className="player-huddle-stack">
-                  <PlayPassPanel room={room} />
-                  <PlayerFeudTurnCard
-                    room={room}
-                    team={viewer.team!}
-                    participantId={viewer.participantId}
-                  />
-                  <TeamChat
-                    team={viewer.team}
-                    teamLabel={teamName(room, viewer.team)}
-                    messages={room.messages}
-                    participantId={viewer.participantId}
-                    onSend={onSendMessage}
-                    locked={room.chat.lockedTeam === viewer.team}
-                    lockReason={room.chat.reason}
-                  />
-                </div>
-              );
-              const props: PlayerBuzzerVariantProps = {
-                room,
-                participantId: viewer.participantId,
-                team: viewer.team!,
-                isBuzzing,
-                error: buzzError,
-                onBuzz: buzz,
-                chat,
-              };
-              if (variant === "B") return <PlayerBuzzerVariantB {...props} />;
-              if (variant === "C") return <PlayerBuzzerVariantC {...props} />;
-              return <PlayerBuzzerVariantA {...props} />;
-            })()}
-            <PrototypeSwitcher current={variant} onChange={changeVariant} />
-          </>
+          <div className="player-primary-action" ref={primaryActionRef} tabIndex={-1}>
+            <PlayerFeudExperience
+              room={room}
+              participantId={viewer.participantId}
+              team={viewer.team}
+              isBuzzing={isBuzzing}
+              error={buzzError}
+              onBuzz={buzz}
+              onSendMessage={onSendMessage}
+              phaseKey={phaseKey}
+            />
+          </div>
         )}
       </section>
     </main>
