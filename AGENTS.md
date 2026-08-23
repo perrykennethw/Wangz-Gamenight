@@ -6,7 +6,8 @@
 - Continue in the same task for review feedback, CI failures, and corrections required by the current issue or pull request.
 - Start a new task and worktree for a different issue, feature, audit, revert, or unrelated refactor.
 - Base new implementation work on the latest `origin/main`, never on an unrelated feature branch.
-- Use `codex/issue-<number>-<short-description>` for issue branches and `codex/<short-description>` for other work.
+- Use `issue-<number>-<short-description>` for issue branches. For other work, use a purpose prefix such as `feature/`, `fix/`, `chore/`, `docs/`, or `refactor/`.
+- Never include Codex, agent, model, or other tool names in branch names.
 - Do not modify `main` directly, merge a pull request, or expand the task beyond its stated outcome unless the user explicitly asks.
 - Inspect the working tree before edits. Preserve unrelated tracked and untracked user work.
 
