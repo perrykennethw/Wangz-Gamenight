@@ -239,28 +239,7 @@ export interface FastMoneyView {
   message: string;
 }
 
-export type FeudRoundPhase = "faceoff" | "playing" | "steal";
-export type FeudStealOutcome = "success" | "failed" | null;
-
-export interface FeudRoundView {
-  kind: "feud";
-  round: number;
-  questionIndex: number;
-  multiplier: number;
-  revealed: number[];
-  strikes: number;
-  strikeRevision: number;
-  phase: FeudRoundPhase;
-  controllingTeam: TeamId | null;
-  originalControllingTeam: TeamId | null;
-  stealOutcome: FeudStealOutcome;
-  selectedAwardTeam: TeamId | null;
-  scores: Record<TeamId, number>;
-  roundPot: number;
-  winnerTeam: TeamId | null;
-}
-
-export type GameView = SpinSolveView | FeudRoundView | FastMoneyView;
+export type GameView = SpinSolveView | FastMoneyView;
 
 export interface RoomSnapshot {
   code: string;
@@ -321,17 +300,6 @@ export type FastMoneyCommand =
   | { type: "finish-first-reveal" }
   | { type: "skip-first-reveal" };
 
-export type FeudRoundCommand =
-  | { type: "reveal-answer"; index: number }
-  | { type: "add-strike" }
-  | { type: "remove-strike" }
-  | { type: "set-control"; team: TeamId }
-  | { type: "set-steal-outcome"; outcome: Exclude<FeudStealOutcome, null> }
-  | { type: "select-award-team"; team: TeamId }
-  | { type: "confirm-award" }
-  | { type: "adjust-score"; team: TeamId; change: number }
-  | { type: "skip-question" };
-
 export interface ClientToServerEvents {
   "room:create": (
     config: GameConfig,
@@ -378,10 +346,6 @@ export interface ClientToServerEvents {
   ) => void;
   "fast-money:action": (
     command: FastMoneyCommand,
-    reply: (result: RoomResult<RoomSnapshot>) => void,
-  ) => void;
-  "feud:round-action": (
-    command: FeudRoundCommand,
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "chat:send": (

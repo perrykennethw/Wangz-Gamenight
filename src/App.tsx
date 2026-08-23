@@ -17,7 +17,7 @@ import {
   type GameAudioPackChoice,
   type GameAudioState,
 } from "./gameAudio";
-import { starterFeudPack } from "./gameData";
+import { multiplierForRound, starterFeudPack } from "./gameData";
 import { FastMoneyBoard, FastMoneyClock, FastMoneyHost, FastMoneyPlayer } from "./FastMoney";
 import {
   createFastMoneyPresentation,
@@ -56,7 +56,6 @@ import type {
   ChatTypingUpdate,
   FeudGameConfig,
   FeudGamePack,
-  FeudRoundCommand,
   GameConfig,
   Participant,
   PlayPassChoice,
@@ -1829,11 +1828,11 @@ function HostPlayPassPanel({ room }: { room: RoomSnapshot }) {
           <span>
             Pass <b>{room.playPass.votes.pass}</b>
           </span>
-          {room.playPass.status === "open" ? (
-            <button disabled={busy} onClick={() => run("end")}>Cancel poll</button>
-          ) : (
-            <strong>Use the award review below to finish the question.</strong>
-          )}
+          <button disabled={busy} onClick={() => run("end")}>
+            {room.playPass.status === "open"
+              ? "Cancel poll"
+              : "End question & unlock"}
+          </button>
         </div>
       )}
       {error && <small role="alert">{error}</small>}
@@ -1851,7 +1850,6 @@ function HostFeudTurnPanel({ room }: { room: RoomSnapshot }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const activeTeam = room.feudTurns.activeTeam;
-  const feud = room.game?.kind === "feud" ? room.game : null;
 
   const choosePlayer = async (team: TeamId, participantId: string) => {
     setBusy(true);
@@ -1876,18 +1874,6 @@ function HostFeudTurnPanel({ room }: { room: RoomSnapshot }) {
       setError(
         cause instanceof Error ? cause.message : "Could not advance the answering order.",
       );
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const setControl = async (team: TeamId) => {
-    setBusy(true);
-    setError("");
-    try {
-      await roomClient.feudRoundAction({ type: "set-control", team });
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not change team control.");
     } finally {
       setBusy(false);
     }
@@ -1927,13 +1913,6 @@ function HostFeudTurnPanel({ room }: { room: RoomSnapshot }) {
                 <span>{isActive ? "Answering now" : activeTeam ? "Standby order" : "If selected"}</span>
                 <h3>{teamName(room, team)}</h3>
               </div>
-              <button
-                className={`control-team-button ${feud?.controllingTeam === team ? "is-selected" : ""}`}
-                disabled={busy || feud?.winnerTeam !== null}
-                onClick={() => void setControl(team)}
-              >
-                {feud?.controllingTeam === team ? "Controls the board" : `Give control to ${teamName(room, team)}`}
-              </button>
               <div className="host-turn-team__players">
                 <div>
                   <small>{isActive ? "Now" : "First up"}</small>
@@ -1995,11 +1974,6 @@ function PlayerFeudTurnCard({
   const current = feudTurnParticipant(room, turn.currentPlayerId);
   const next = feudTurnParticipant(room, turn.nextPlayerId);
   const isActiveTeam = room.feudTurns.activeTeam === team;
-  const feud = room.game?.kind === "feud" ? room.game : null;
-  const isControllingTeam = feud?.controllingTeam === team;
-  const isStealingTeam = Boolean(
-    feud?.originalControllingTeam && feud.originalControllingTeam !== team,
-  );
   const status = !room.feudTurns.activeTeam
     ? "Order ready after Play or Pass"
     : isActiveTeam
@@ -2017,23 +1991,9 @@ function PlayerFeudTurnCard({
       aria-live="polite"
     >
       <header>
-        <span>
-          {isControllingTeam
-            ? "Your team controls the board"
-            : isActiveTeam
-              ? "Your team is live"
-              : "Answering order"}
-        </span>
+        <span>{isActiveTeam ? "Your team is live" : "Answering order"}</span>
         <strong>{status}</strong>
       </header>
-      {feud?.phase === "playing" && feud.strikes === 2 && isStealingTeam && (
-        <p className="player-steal-cue" role="status">Get ready to steal.</p>
-      )}
-      {feud?.phase === "steal" && (
-        <p className={`player-steal-cue ${isStealingTeam ? "is-live" : ""}`} role="status">
-          {isStealingTeam ? "Steal opportunity — your team is up." : "Three strikes — defend the board."}
-        </p>
-      )}
       <div>
         <span>
           <small>{isActiveTeam ? "Now" : "First up"}</small>
@@ -3587,10 +3547,13 @@ function HostBuzzerPanel({ room }: { room: RoomSnapshot }) {
 }
 
 function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GameProps) {
+  const [round, setRound] = useState(1);
+  const [questionIndex, setQuestionIndex] = useState(0);
+  const [revealed, setRevealed] = useState<number[]>([]);
+  const [strikes, setStrikes] = useState(0);
+  const [scores, setScores] = useState<[number, number]>([0, 0]);
+  const [winner, setWinner] = useState<Winner | null>(null);
   const [fastMoneyError, setFastMoneyError] = useState("");
-  const [roundError, setRoundError] = useState("");
-  const [strikeAnimating, setStrikeAnimating] = useState(false);
-  const feud = room.game?.kind === "feud" ? room.game : null;
 
   useEffect(() => roomClient.subscribeFastMoneyRepeat(() => {
     void gameAudio.play("repeat-answer");
@@ -3605,73 +3568,115 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
     previousBuzzerWinner.current = buzzerWinnerId;
   }, [buzzerWinnerId]);
 
-  const question = feud
-    ? config.pack.questions[feud.questionIndex % config.pack.questions.length]
-    : null;
+  const question =
+    config.pack.questions[questionIndex % config.pack.questions.length];
+  const multiplier = multiplierForRound(round);
+  const roundPot = useMemo(
+    () =>
+      revealed.reduce(
+        (sum, index) => sum + question.answers[index].points * multiplier,
+        0,
+      ),
+    [revealed, question, multiplier],
+  );
   const presentation = useMemo(
     () => room.game?.kind === "fast-money"
       ? createFastMoneyPresentation(room)
-      : feud && question
-        ? createFeudPresentation({ room, config, question })
-        : null,
-    [room, config, feud, question],
+      : createFeudPresentation({
+          room,
+          config,
+          round,
+          multiplier,
+          question,
+          revealed,
+          strikes,
+          scores,
+          roundPot,
+          winner,
+        }),
+    [
+      room,
+      config,
+      round,
+      multiplier,
+      question,
+      revealed,
+      strikes,
+      scores,
+      roundPot,
+      winner,
+    ],
   );
   usePresentationPublisher(presentation);
 
-  const previousStrikeRevision = useRef(feud?.strikeRevision ?? 0);
-  useEffect(() => {
-    const revision = feud?.strikeRevision ?? 0;
-    if (revision <= previousStrikeRevision.current) {
-      previousStrikeRevision.current = revision;
-      return;
-    }
-    previousStrikeRevision.current = revision;
-    setStrikeAnimating(true);
-    const timeout = window.setTimeout(() => setStrikeAnimating(false), 850);
-    return () => window.clearTimeout(timeout);
-  }, [feud?.strikeRevision]);
-
-  const runRoundAction = async (command: FeudRoundCommand) => {
-    setRoundError("");
-    try {
-      return await roomClient.feudRoundAction(command);
-    } catch (cause) {
-      setRoundError(cause instanceof Error ? cause.message : "Could not update the round.");
-      return null;
-    }
-  };
-
-  const revealAnswer = async (index: number) => {
-    if (!feud) return;
-    if (feud.revealed.includes(index)) {
+  const revealAnswer = (index: number) => {
+    if (revealed.includes(index)) {
       void gameAudio.play("repeat-answer");
       return;
     }
-    const next = await runRoundAction({ type: "reveal-answer", index });
-    if (next) void gameAudio.play("answer-reveal");
+    void gameAudio.play("answer-reveal");
+    setRevealed((current) =>
+      current.includes(index) ? current : [...current, index],
+    );
+    if (room.feudTurns.activeTeam && strikes < 3) {
+      void roomClient.advanceFeudTurn().catch(() => undefined);
+    }
   };
 
-  const addStrike = async () => {
-    const next = await runRoundAction({ type: "add-strike" });
-    if (next) void gameAudio.play("wrong-answer");
+  const addStrike = () => {
+    void gameAudio.play("wrong-answer");
+    setStrikes((current) => Math.min(3, current + 1));
+    if (room.feudTurns.activeTeam && strikes < 2) {
+      void roomClient.advanceFeudTurn().catch(() => undefined);
+    }
   };
 
-  const confirmAward = async () => {
-    const next = await runRoundAction({ type: "confirm-award" });
-    if (!next || next.game?.kind !== "feud") return;
-    void gameAudio.play(next.game.winnerTeam ? "game-win" : "round-win");
+  const awardRound = (teamIndex: TeamIndex) => {
+    void roomClient.endFeudQuestion();
+    void roomClient.nextBuzzerPair();
+    const nextScores: [number, number] = [scores[0], scores[1]];
+    nextScores[teamIndex] += roundPot;
+    setScores(nextScores);
+    if (nextScores[teamIndex] >= config.winningScore) {
+      void gameAudio.play("game-win");
+      setWinner({
+        name: teamIndex === 0 ? config.teamOne : config.teamTwo,
+        score: nextScores[teamIndex],
+        team: teamIndex === 0 ? "one" : "two",
+      });
+      return;
+    }
+    void gameAudio.play("round-win");
+    setRound((current) => current + 1);
+    setQuestionIndex((current) => (current + 1) % config.pack.questions.length);
+    setRevealed([]);
+    setStrikes(0);
+  };
+
+  const adjustScore = (teamIndex: TeamIndex, change: number) => {
+    setScores((current) => {
+      const nextScores: [number, number] = [current[0], current[1]];
+      nextScores[teamIndex] = Math.max(0, nextScores[teamIndex] + change);
+      return nextScores;
+    });
+  };
+
+  const newQuestion = () => {
+    void roomClient.endFeudQuestion();
+    void roomClient.resetBuzzer();
+    setQuestionIndex((current) => (current + 1) % config.pack.questions.length);
+    setRevealed([]);
+    setStrikes(0);
   };
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (room.game?.kind === "fast-money") return;
-      const target = event.target as HTMLElement | null;
-      if (target?.matches("input, textarea, select, [contenteditable]")) return;
-      if (question && event.key >= "1" && event.key <= String(question.answers.length))
-        void revealAnswer(Number(event.key) - 1);
-      if (event.key.toLowerCase() === "x" && !event.repeat) void addStrike();
-      if (event.key.toLowerCase() === "a") void runRoundAction({ type: "select-award-team", team: "one" });
-      if (event.key.toLowerCase() === "b") void runRoundAction({ type: "select-award-team", team: "two" });
+      if (event.key >= "1" && event.key <= String(question.answers.length))
+        revealAnswer(Number(event.key) - 1);
+      if (event.key.toLowerCase() === "x") addStrike();
+      if (event.key.toLowerCase() === "a") awardRound(0);
+      if (event.key.toLowerCase() === "b") awardRound(1);
       if (event.key.toLowerCase() === "z" && !event.repeat) {
         if (room.buzzer.status === "armed") void roomClient.closeBuzzer();
         else void roomClient.armBuzzer();
@@ -3707,33 +3712,14 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
     );
   }
 
-  if (!feud || !question) return null;
-
-  const winner: Winner | null = feud.winnerTeam
-    ? {
-        team: feud.winnerTeam,
-        name: feud.winnerTeam === "one" ? config.teamOne : config.teamTwo,
-        score: feud.scores[feud.winnerTeam],
-      }
-    : null;
-  const selectedTeamName = feud.selectedAwardTeam
-    ? feud.selectedAwardTeam === "one" ? config.teamOne : config.teamTwo
-    : null;
-  const controllingTeamName = feud.controllingTeam
-    ? feud.controllingTeam === "one" ? config.teamOne : config.teamTwo
-    : null;
-  const stealingTeam = feud.originalControllingTeam
-    ? feud.originalControllingTeam === "one" ? "two" : "one"
-    : null;
-
   return (
     <main className="game-shell">
       <header className="game-topbar">
         <Brand compact />
         <div className="round-indicator">
           <span>Room {roomCode}</span>
-          <span>Round {feud.round}</span>
-          <b>{feud.multiplier}× points</b>
+          <span>Round {round}</span>
+          <b>{multiplier}× points</b>
         </div>
         <div className="host-view-actions">
           <span>Moderator tab</span>
@@ -3747,29 +3733,29 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
       <section className="score-row">
         <ScoreCard
           team={config.teamOne}
-          score={feud.scores.one}
+          score={scores[0]}
           accent="gold"
-          onAdjust={(change) => void runRoundAction({ type: "adjust-score", team: "one", change })}
+          onAdjust={(change) => adjustScore(0, change)}
         />
         <div
           className="round-pot"
-          aria-label={`${feud.roundPot} points in the round at ${feud.multiplier} times value`}
+          aria-label={`${roundPot} points in the round`}
         >
-          <span>Round pot · {feud.multiplier}×</span>
-          <strong>{feud.roundPot}</strong>
+          <span>Round pot</span>
+          <strong>{roundPot}</strong>
         </div>
         <ScoreCard
           team={config.teamTwo}
-          score={feud.scores.two}
+          score={scores[1]}
           accent="coral"
-          onAdjust={(change) => void runRoundAction({ type: "adjust-score", team: "two", change })}
+          onAdjust={(change) => adjustScore(1, change)}
         />
       </section>
 
       <section className="question-board">
         <header className="question-board__header">
           <span>{config.pack.title} · We asked 100 people…</span>
-          <button onClick={() => void runRoundAction({ type: "skip-question" })}>Skip question ↗</button>
+          <button onClick={newQuestion}>Skip question ↗</button>
         </header>
         {room.buzzer.status === "armed" && (
           <div
@@ -3806,8 +3792,8 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
               answer={answer.label}
               points={answer.points}
               number={index + 1}
-              revealed={feud.revealed.includes(index)}
-              onReveal={() => void revealAnswer(index)}
+              revealed={revealed.includes(index)}
+              onReveal={() => revealAnswer(index)}
             />
           ))}
         </div>
@@ -3819,71 +3805,46 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
         <HostBuzzerPanel room={room} />
         <HostPlayPassPanel room={room} />
         <HostFeudTurnPanel room={room} />
-        <div className={`strike-panel strike-panel--${feud.controllingTeam ?? "neutral"} ${strikeAnimating ? "is-animating" : ""} ${feud.strikes === 3 ? "is-final" : ""}`}>
+        <div className="strike-panel">
           <span>Strikes</span>
-          <div className="strike-marks" aria-label={`${feud.strikes} strikes`}>
+          <div className="strike-marks" aria-label={`${strikes} strikes`}>
             {[0, 1, 2].map((index) => (
-              <i key={index} className={index < feud.strikes ? "is-active" : ""}>
+              <i key={index} className={index < strikes ? "is-active" : ""}>
                 ×
               </i>
             ))}
           </div>
           <div className="strike-actions">
             <button
-              onClick={() => void runRoundAction({ type: "remove-strike" })}
-              disabled={feud.strikes === 0}
+              onClick={() => setStrikes((current) => Math.max(0, current - 1))}
               aria-label="Remove a strike"
             >
               Undo
             </button>
-            <button onClick={() => void addStrike()} disabled={!feud.controllingTeam || feud.strikes >= 3}>
+            <button onClick={addStrike}>
               Add strike <kbd>X</kbd>
             </button>
           </div>
         </div>
-        <div className="award-panel award-panel--review">
-          <span>Review award · {feud.roundPot} points</span>
-          {feud.phase === "steal" && (
-            <div className="steal-outcome-controls">
-              <button className={feud.stealOutcome === "success" ? "is-selected" : ""} onClick={() => void runRoundAction({ type: "set-steal-outcome", outcome: "success" })}>
-                Steal succeeded
-              </button>
-              <button className={feud.stealOutcome === "failed" ? "is-selected" : ""} onClick={() => void runRoundAction({ type: "set-steal-outcome", outcome: "failed" })}>
-                Steal failed
-              </button>
-            </div>
-          )}
-          <div className="award-team-options">
-            <button className={feud.selectedAwardTeam === "one" ? "is-selected" : ""} disabled={feud.roundPot === 0} onClick={() => void runRoundAction({ type: "select-award-team", team: "one" })}>
+        <div className="award-panel">
+          <span>Award {roundPot} points</span>
+          <div>
+            <button disabled={roundPot === 0} onClick={() => awardRound(0)}>
               {config.teamOne} <kbd>A</kbd>
             </button>
-            <button className={feud.selectedAwardTeam === "two" ? "is-selected" : ""} disabled={feud.roundPot === 0} onClick={() => void runRoundAction({ type: "select-award-team", team: "two" })}>
+            <button disabled={roundPot === 0} onClick={() => awardRound(1)}>
               {config.teamTwo} <kbd>B</kbd>
             </button>
           </div>
-          <p>
-            {feud.phase === "steal"
-              ? `Steal opportunity: ${stealingTeam ? teamName(room, stealingTeam) : "opposing team"}`
-              : controllingTeamName
-                ? `${controllingTeamName} currently control the board.`
-                : "Play or Pass will preselect the likely recipient."}
-          </p>
-          <button className="award-confirm" disabled={!selectedTeamName || feud.roundPot === 0} onClick={() => void confirmAward()}>
-            {selectedTeamName
-              ? `Confirm ${feud.roundPot} points to ${selectedTeamName}`
-              : "Choose award recipient"}
-          </button>
         </div>
       </section>
-
-      {roundError && <p className="form-error game-round-error" role="alert">{roundError}</p>}
 
       <HostHuddles room={room} />
 
       <footer className="game-help">
         Host shortcuts: <kbd>Z</kbd> opens/closes buzzer · <kbd>1</kbd>–
         <kbd>8</kbd> reveal answers · <kbd>X</kbd> adds a strike · first team to{" "}
-        {config.winningScore} wins · A/B select an award recipient; confirmation applies it
+        {config.winningScore} wins
       </footer>
 
       {winner && (
@@ -4021,24 +3982,8 @@ function PresenterAnswerTile({
 }
 
 function PresenterFeud({ state }: { state: FeudPresentation }) {
-  const controlTeam = state.controllingTeam
-    ? state.controllingTeam === "one" ? state.teamOne : state.teamTwo
-    : null;
-  const stealingTeam = state.originalControllingTeam
-    ? state.originalControllingTeam === "one" ? state.teamTwo : state.teamOne
-    : null;
-  const [showStrike, setShowStrike] = useState(false);
-  const previousStrikeRevision = useRef(state.strikeRevision);
-  useEffect(() => {
-    if (state.strikeRevision <= previousStrikeRevision.current) {
-      previousStrikeRevision.current = state.strikeRevision;
-      return;
-    }
-    previousStrikeRevision.current = state.strikeRevision;
-    setShowStrike(true);
-    const timeout = window.setTimeout(() => setShowStrike(false), 850);
-    return () => window.clearTimeout(timeout);
-  }, [state.strikeRevision]);
+  const controlTeam =
+    state.decision.controllingTeam === "one" ? state.teamOne : state.teamTwo;
   return (
     <main className="game-shell presenter-game-shell">
       <header className="presenter-topbar presenter-topbar--game">
@@ -4068,15 +4013,6 @@ function PresenterFeud({ state }: { state: FeudPresentation }) {
         />
       </section>
       <section className="question-board presenter-question-board">
-        {showStrike && (
-          <div
-            className={`presenter-strike-overlay ${state.strikes === 3 ? "is-final" : ""}`}
-            key={state.strikeRevision}
-            aria-hidden="true"
-          >
-            ×
-          </div>
-        )}
         <header className="question-board__header">
           <span>{state.title} · We asked 100 people…</span>
           <b>First to {state.winningScore}</b>
@@ -4123,24 +4059,10 @@ function PresenterFeud({ state }: { state: FeudPresentation }) {
             <strong>is choosing Play or Pass</strong>
           </div>
         )}
-        {controlTeam && (
+        {state.decision.status === "decided" && (
           <div className="presenter-decision presenter-decision--locked">
-            <span>{state.phase === "steal" ? "Steal" : state.decision.choice ?? "Control"}</span>
-            <strong>
-              {state.phase === "steal"
-                ? `${stealingTeam} have a chance to steal`
-                : `${controlTeam} control the board`}
-            </strong>
-          </div>
-        )}
-        {state.phase === "playing" && state.strikes === 2 && stealingTeam && (
-          <div className="presenter-steal-warning" role="status">
-            {stealingTeam}, get ready to steal
-          </div>
-        )}
-        {state.phase === "steal" && stealingTeam && (
-          <div className="presenter-steal-warning is-live" role="status">
-            Steal opportunity · {stealingTeam}
+            <span>{state.decision.choice}</span>
+            <strong>{controlTeam} answer the question</strong>
           </div>
         )}
         {state.turn.activeTeam && state.turn.currentPlayer && (
@@ -4178,7 +4100,7 @@ function PresenterFeud({ state }: { state: FeudPresentation }) {
           ))}
         </div>
       </section>
-      <section className={`presenter-round-status presenter-round-status--${state.controllingTeam ?? "neutral"}`}>
+      <section className="presenter-round-status">
         <span>Strikes</span>
         <div className="strike-marks" aria-label={`${state.strikes} strikes`}>
           {[0, 1, 2].map((index) => (
