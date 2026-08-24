@@ -6,3 +6,4 @@ server-dist
 .env.*
 !.env.example
 gha-creds-*.json
+audio-pack/
