@@ -10,6 +10,7 @@
     "dev": "concurrently -k -n server,web -c yellow,cyan \"npm:dev:server\" \"npm:dev:web\"",
     "dev:web": "vite",
     "dev:server": "tsx watch server/index.ts",
+    "verify": "node scripts/verify.mjs",
     "build": "vite build && tsc -p tsconfig.server.json",
     "typecheck": "tsc --noEmit",
     "test:game-packs": "tsx server/feudGamePack.test.ts",
