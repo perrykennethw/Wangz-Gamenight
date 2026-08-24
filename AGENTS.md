@@ -20,6 +20,12 @@
 - Keep the pull request in draft while any required criterion is incomplete, blocked, or intentionally deferred.
 - Use `Closes #<number>` only when the implementation fully resolves the issue.
 
+## Architecture and domain
+
+- Use the canonical product language in `CONTEXT.md`; update the glossary when a domain term is added or its meaning changes.
+- Read `docs/architecture.md` before changing runtime boundaries, state ownership, privacy projections, or deployment topology, and update it when those structures change.
+- Add an ADR under `docs/adr/` only for a hard-to-reverse, non-obvious decision made between real alternatives.
+
 ## Setup and verification
 
 - Use Node.js 20.19 or newer and install dependencies with `npm ci` when needed.

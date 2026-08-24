@@ -2,6 +2,10 @@
 
 A TypeScript and React host-led game night app with a playable Family Feud-style game and room for more game types.
 
+## Architecture
+
+See [Architecture](docs/architecture.md) for runtime boundaries, state ownership, privacy projections, and deployment constraints. [CONTEXT.md](CONTEXT.md) defines the project's domain language, and [Architecture Decision Records](docs/adr/README.md) preserve the rationale for consequential technical choices.
+
 ## Run locally
 
 Use Node.js 20.19 or newer.
