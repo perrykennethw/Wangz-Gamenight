@@ -26,6 +26,7 @@
     "test:moderated-chat": "tsx server/moderatedChat.integration.ts",
     "test:presenter": "tsx server/presenter.test.ts",
     "test:room-invites": "tsx server/roomInvite.test.ts",
+    "test:room-client": "tsx server/roomClient.test.ts",
     "test:player-preferences": "tsx server/playerIdentityPreference.test.ts",
     "test:player-session": "tsx server/playerSessionIdentity.test.ts",
     "test:turn-order": "tsx server/feudTurnOrder.test.ts",
