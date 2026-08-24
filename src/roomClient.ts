@@ -21,19 +21,24 @@ type SnapshotListener = (snapshot: RoomSnapshot) => void;
 type ClosedListener = (message: string) => void;
 type TypingListener = (update: ChatTypingUpdate) => void;
 
-class RoomClient {
-  private readonly socket: Socket<ServerToClientEvents, ClientToServerEvents>;
+export type RoomClientSocket = Pick<
+  Socket<ServerToClientEvents, ClientToServerEvents>,
+  "connected" | "connect" | "on" | "off" | "emit"
+>;
+
+export class RoomClient {
+  private readonly socket: RoomClientSocket;
   private joinedRoom: JoinRoomDetails | null = null;
   private canResume = false;
   private onResumeFailed: ClosedListener | null = null;
 
-  constructor() {
-    this.socket = io({ autoConnect: false });
+  constructor(socket: RoomClientSocket = io({ autoConnect: false })) {
+    this.socket = socket;
     this.socket.on("connect", () => {
       if (!this.canResume || !this.joinedRoom) return;
       this.socket.emit("room:join", this.joinedRoom, (result) => {
         if (result.ok) return;
-        this.canResume = false;
+        this.clearResumeIntent();
         this.onResumeFailed?.(`Could not reconnect: ${result.error}`);
       });
     });
@@ -45,19 +50,22 @@ class RoomClient {
   ): () => void {
     this.connect();
     this.onResumeFailed = onClosed;
+    const handleClosed = (message: string) => {
+      this.clearResumeIntent();
+      onClosed(message);
+    };
     this.socket.on("room:snapshot", onSnapshot);
-    this.socket.on("room:closed", onClosed);
+    this.socket.on("room:closed", handleClosed);
 
     return () => {
       this.socket.off("room:snapshot", onSnapshot);
-      this.socket.off("room:closed", onClosed);
+      this.socket.off("room:closed", handleClosed);
       if (this.onResumeFailed === onClosed) this.onResumeFailed = null;
     };
   }
 
   createRoom(config: GameConfig): Promise<RoomSnapshot> {
-    this.canResume = false;
-    this.joinedRoom = null;
+    this.clearResumeIntent();
     this.connect();
     return new Promise((resolve, reject) => {
       this.socket.emit("room:create", config, (result) =>
@@ -304,9 +312,13 @@ class RoomClient {
   }
 
   leaveRoom(): void {
+    this.clearResumeIntent();
+    this.socket.emit("room:leave");
+  }
+
+  private clearResumeIntent(): void {
     this.canResume = false;
     this.joinedRoom = null;
-    this.socket.emit("room:leave");
   }
 
   private connect(): void {
