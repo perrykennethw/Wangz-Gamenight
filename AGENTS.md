@@ -33,5 +33,6 @@
 ## Pull requests and completion
 
 - Commit only task-related files and open a draft pull request unless the user requests a different state.
+- Pull requests targeting `main` must pass the required **Repository verification** check, which runs `npm run verify` without deployment credentials.
 - Report the issue, branch, commit, acceptance checklist, exact validation, and pull-request URL.
 - Keep follow-up work for that pull request in the same Codex task. After merge, return the local checkout to an updated `main` and clean up the merged task branch or worktree only after confirming it is safe.

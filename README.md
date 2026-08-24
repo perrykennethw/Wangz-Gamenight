@@ -164,6 +164,8 @@ Deployments and instance replacements clear active rooms. Cloud Run also limits 
 
 ### Continuous deployment
 
-The GitHub Actions workflow in `.github/workflows/deploy.yml` runs on every push to `main`, including merged pull requests. It type-checks, builds, and runs the multiplayer privacy test before authenticating to GCP. It then publishes an image tagged with the Git commit SHA, deploys that immutable image, and repeats the health and multiplayer tests against production.
+Pull requests targeting `main` run `.github/workflows/verify.yml`. Its required **Repository verification** check installs dependencies and runs the same complete `npm run verify` suite used locally, without access to production deployment credentials.
+
+After a pull request is merged, `.github/workflows/deploy.yml` runs on the push to `main`. It validates the application before authenticating to GCP, publishes an image tagged with the Git commit SHA, deploys that immutable image, and repeats the health and multiplayer tests against production.
 
 GitHub authenticates with short-lived credentials through Workload Identity Federation. No Google Cloud service-account key or GitHub secret is required. The GCP identity provider is restricted to repository ID `1336056422`, the `main` branch, and this specific workflow file.
