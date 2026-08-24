@@ -27,6 +27,7 @@
     "test:presenter": "tsx server/presenter.test.ts",
     "test:room-invites": "tsx server/roomInvite.test.ts",
     "test:player-preferences": "tsx server/playerIdentityPreference.test.ts",
+    "test:player-session": "tsx server/playerSessionIdentity.test.ts",
     "test:turn-order": "tsx server/feudTurnOrder.test.ts",
     "test:turn-order-integration": "tsx server/feudTurnOrder.integration.ts",
     "server": "tsx server/index.ts",

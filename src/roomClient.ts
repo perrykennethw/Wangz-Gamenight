@@ -15,6 +15,7 @@ import type {
   SpinSolveCommand,
   TeamId,
 } from "./roomTypes";
+import { getPlayerSessionId } from "./playerSessionIdentity";
 
 type SnapshotListener = (snapshot: RoomSnapshot) => void;
 type ClosedListener = (message: string) => void;
@@ -70,7 +71,7 @@ class RoomClient {
       code,
       name,
       avatarId,
-      sessionId: this.sessionId(),
+      sessionId: getPlayerSessionId(),
     };
     this.joinedRoom = details;
     this.canResume = false;
@@ -306,15 +307,6 @@ class RoomClient {
     this.canResume = false;
     this.joinedRoom = null;
     this.socket.emit("room:leave");
-  }
-
-  private sessionId(): string {
-    const key = "wangz-player-session";
-    const existing = window.sessionStorage.getItem(key);
-    if (existing) return existing;
-    const created = crypto.randomUUID();
-    window.sessionStorage.setItem(key, created);
-    return created;
   }
 
   private connect(): void {
