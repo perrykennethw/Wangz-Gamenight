@@ -1,0 +1,68 @@
+name: Feature request
+description: Propose a scoped, testable improvement.
+title: "[Feature] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe one coherent outcome. Keep unrelated improvements in separate issues.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What user need, limitation, or opportunity should this address?
+      placeholder: Describe who is affected and why the current behavior is insufficient.
+    validations:
+      required: true
+
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the result from the user's perspective, without prescribing implementation details unless necessary.
+      placeholder: When this is complete, a user can...
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope
+      description: List what is included and what is intentionally out of scope.
+      placeholder: |
+        Included:
+        -
+
+        Out of scope:
+        -
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: List observable, testable conditions that must all be true for this issue to be complete.
+      placeholder: |
+        - [ ] Given ..., when ..., then ...
+        - [ ] Existing ... continues to ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation approach
+      description: Explain how the acceptance criteria should be verified, including important automated or manual checks.
+      placeholder: Tests, commands, viewports, devices, or scenarios to exercise.
+    validations:
+      required: true
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add relevant mockups, examples, constraints, dependencies, or related issues.
+    validations:
+      required: false

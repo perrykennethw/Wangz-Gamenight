@@ -1,0 +1,69 @@
+name: Bug report
+description: Report reproducible incorrect behavior with a testable resolution.
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe one defect per issue and remove private or sensitive data from evidence.
+
+  - type: textarea
+    id: observed-behavior
+    attributes:
+      label: Observed behavior
+      description: What happened, and what was its impact?
+      placeholder: Describe the incorrect behavior as precisely as possible.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction steps
+      description: Provide the smallest reliable sequence, its frequency, and any required setup. Explain if it cannot be reproduced consistently.
+      placeholder: |
+        1. Start with ...
+        2. Perform ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: What should have happened instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: List observable, testable conditions that demonstrate the defect is resolved without regression.
+      placeholder: |
+        - [ ] The reproduction steps no longer produce ...
+        - [ ] Related ... behavior continues to ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include relevant browser, device, viewport, operating system, app revision, or room setup.
+      placeholder: |
+        Browser/device:
+        Viewport:
+        App revision:
+        Other setup:
+    validations:
+      required: false
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence and additional context
+      description: Add sanitized screenshots, recordings, logs, suspected cause, or related issues.
+    validations:
+      required: false
