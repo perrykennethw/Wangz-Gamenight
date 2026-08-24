@@ -26,6 +26,12 @@
 - Read `docs/architecture.md` before changing runtime boundaries, state ownership, privacy projections, or deployment topology, and update it when those structures change.
 - Add an ADR under `docs/adr/` only for a hard-to-reverse, non-obvious decision made between real alternatives.
 
+## React quality
+
+- Use the repo-scoped `react-quality` skill in `.agents/skills/react-quality/` when writing or reviewing React components, hooks, browser storage, client event handling, or Vite bundle changes.
+- Apply it as guidance for this Vite single-page application. Do not introduce Next.js, React Server Components, server-rendering, or Server Action patterns.
+- Require concrete evidence before adding memoization, code splitting, or other performance-specific complexity. Record the relevant before-and-after build or profiling result when making a performance change.
+
 ## Setup and verification
 
 - Use Node.js 20.19 or newer and install dependencies with `npm ci` when needed.
