@@ -24,6 +24,7 @@
 
 - Use Node.js 20.19 or newer and install dependencies with `npm ci` when needed.
 - Run the most relevant focused tests first, followed by broader checks proportionate to the change.
+- Run `npm run verify` before publishing repository changes when the full suite is feasible. It type-checks, builds, and runs every repository test script, including integration tests.
 - At minimum, run `npm run typecheck` and `npm run build` for application changes.
 - For user-interface work, verify the affected interaction in a browser. For responsive contestant work, include 320x568, 375x667, and 390x844 viewports when relevant.
 - Before publishing, inspect `git diff`, run `git diff --check`, and inspect `git status --short --branch`.

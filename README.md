@@ -15,6 +15,8 @@ Open the local URL shown in the terminal. For a production check, run `npm run b
 
 Run `npm run typecheck` to verify the TypeScript source independently of the production build.
 
+Run `npm run verify` for the complete local verification suite. It type-checks and builds the application, runs all repository test scripts, starts the built room server on an available local port for integration tests, and stops it afterward.
+
 Run `npm run test:game-packs` to verify Family Feud game-pack parsing and validation.
 
 Run `npm run test:fast-money` for the finale state machine. With the room server running, `npm run test:fast-money-integration` verifies socket authorization, reconnects, and hidden-answer redaction.
