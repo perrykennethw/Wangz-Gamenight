@@ -28,6 +28,7 @@
     "test:transient-status": "tsx server/transientStatus.test.ts",
     "test:room-invites": "tsx server/roomInvite.test.ts",
     "test:room-client": "tsx server/roomClient.test.ts",
+    "test:room-notices": "tsx server/roomNotice.test.ts && vitest run server/roomNotice.ui.test.tsx --environment happy-dom",
     "test:player-preferences": "tsx server/playerIdentityPreference.test.ts",
     "test:player-session": "tsx server/playerSessionIdentity.test.ts",
     "test:turn-order": "tsx server/feudTurnOrder.test.ts",
@@ -52,6 +53,7 @@
     "happy-dom": "^20.11.12",
     "tsx": "^4.20.6",
     "typescript": "^5.9.3",
-    "vite": "^8.2.1"
+    "vite": "^8.2.1",
+    "vitest": "^4.1.11"
   }
 }
