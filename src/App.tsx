@@ -50,6 +50,7 @@ import {
   type SharedTimerPreset,
   type SharedTimerState,
 } from "./sharedTimer";
+import { useTransientStatus } from "./transientStatus";
 import type {
   AvatarId,
   ChatMessage,
@@ -543,15 +544,16 @@ function AvatarPicker({
 }
 
 function PresenterTabButton({ roomCode }: { roomCode: string }) {
-  const [status, setStatus] = useState("");
+  const [status, statusController] = useTransientStatus();
   const open = () => {
+    const action = statusController.begin();
     const opened = openPresenterTab(roomCode);
-    setStatus(
+    action.show(
       opened
         ? "Presenter tab opened."
         : "Your browser blocked the presenter tab. Allow pop-ups, then try again.",
+      opened ? 1800 : undefined,
     );
-    if (opened) window.setTimeout(() => setStatus(""), 1800);
   };
 
   return (
@@ -571,17 +573,14 @@ function RoomInviteCard({
 }) {
   const invitationUrl = useMemo(() => browserRoomInviteUrl(roomCode), [roomCode]);
   const localOnly = isLocalRoomInviteUrl(invitationUrl);
-  const [status, setStatus] = useState("");
+  const [status, statusController] = useTransientStatus();
 
-  const copy = async (value: string, successMessage: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setStatus(successMessage);
-    } catch {
-      setStatus("Could not copy. Select the room code instead.");
-    }
-    window.setTimeout(() => setStatus(""), 1800);
-  };
+  const copy = (value: string, successMessage: string) => statusController.run(
+    () => navigator.clipboard.writeText(value),
+    successMessage,
+    "Could not copy. Select the room code instead.",
+    1800,
+  );
 
   return (
     <aside

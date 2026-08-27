@@ -25,6 +25,7 @@
     "test:room-replay": "tsx server/roomReplay.integration.ts",
     "test:moderated-chat": "tsx server/moderatedChat.integration.ts",
     "test:presenter": "tsx server/presenter.test.ts",
+    "test:transient-status": "tsx server/transientStatus.test.ts",
     "test:room-invites": "tsx server/roomInvite.test.ts",
     "test:room-client": "tsx server/roomClient.test.ts",
     "test:player-preferences": "tsx server/playerIdentityPreference.test.ts",
