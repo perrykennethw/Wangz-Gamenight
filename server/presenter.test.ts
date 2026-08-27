@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import { starterFeudPack } from '../src/gameData.js'
-import { createFastMoneyPresentation, createFeudPresentation, createLobbyPresentation, presenterRoomCodeFromSearch } from '../src/presenterChannel.js'
+import {
+  createFastMoneyPresentation,
+  createFeudPresentation,
+  createLobbyPresentation,
+  presenterRoomCodeFromSearch,
+  startPresentationPublisher,
+  startPresentationSubscriber,
+  type PresentationTransportChannel,
+} from '../src/presenterChannel.js'
 import type { FastMoneyView, RoomSnapshot } from '../src/roomTypes.js'
 
 const config = {
@@ -176,5 +184,142 @@ assert.equal(firstReveal.game.questions.every((question) => question.responses[0
 assert.equal(firstReveal.game.questions.every((question) => question.responses[1].text === null), true)
 assert.deepEqual(firstReveal.game.subtotals, [145, null])
 assert.equal(firstReveal.game.combinedScore, firstReveal.game.questions.reduce((total, question) => total + (question.responses[0].points ?? 0), 0))
+
+class FakePresentationChannel implements PresentationTransportChannel {
+  onmessage: ((event: MessageEvent<unknown>) => void) | null = null
+  readonly messages: unknown[] = []
+  closeCount = 0
+  throwOnPost = false
+
+  postMessage(message: unknown): void {
+    if (this.throwOnPost) throw new Error('Presenter transport rejected the message')
+    this.messages.push(message)
+  }
+
+  close(): void {
+    this.closeCount += 1
+  }
+
+  receive(data: unknown): void {
+    this.onmessage?.({ data } as MessageEvent<unknown>)
+  }
+}
+
+assert.equal(
+  startPresentationPublisher(lobby, () => lobby, () => null),
+  null,
+  'missing BroadcastChannel support disables publishing without throwing',
+)
+assert.doesNotThrow(() => {
+  const publisher = startPresentationPublisher(lobby, () => lobby, () => {
+    throw new Error('BroadcastChannel construction blocked')
+  })
+  assert.equal(publisher, null)
+})
+
+const throwingPublisherChannel = new FakePresentationChannel()
+throwingPublisherChannel.throwOnPost = true
+assert.doesNotThrow(() => {
+  const publisher = startPresentationPublisher(lobby, () => lobby, () => throwingPublisherChannel)
+  assert.ok(publisher)
+  publisher.publish(lobby)
+  throwingPublisherChannel.receive({ version: 1, roomCode: room.code, kind: 'request' })
+  publisher.close()
+})
+assert.equal(throwingPublisherChannel.closeCount, 1)
+
+const publishingChannel = new FakePresentationChannel()
+let latestPresentation = lobby
+let publisherChannelName = ''
+const publisher = startPresentationPublisher(lobby, () => latestPresentation, (name) => {
+  publisherChannelName = name
+  return publishingChannel
+})
+assert.ok(publisher)
+assert.equal(publisherChannelName, 'wangz-presenter-ABCDE')
+assert.equal(publishingChannel.messages.length, 1, 'publisher sends its initial state')
+publishingChannel.receive({ version: 1, roomCode: 'OTHER', kind: 'request' })
+assert.equal(publishingChannel.messages.length, 1, 'publisher ignores another room')
+latestPresentation = { ...lobby, teamRevealRevision: 3 }
+publishingChannel.receive({ version: 1, roomCode: room.code, kind: 'request' })
+assert.equal(publishingChannel.messages.length, 2, 'publisher answers a request for its room')
+assert.deepEqual(
+  publishingChannel.messages[1],
+  { version: 1, roomCode: room.code, kind: 'state', state: latestPresentation },
+)
+publisher.publish({ ...latestPresentation, teamRevealRevision: 4 })
+assert.equal(publishingChannel.messages.length, 3, 'publisher sends live state updates')
+publisher.close()
+publisher.close()
+assert.equal(publishingChannel.closeCount, 1, 'publisher cleanup is idempotent')
+assert.equal(publishingChannel.onmessage, null)
+
+assert.equal(
+  startPresentationSubscriber(room.code, () => undefined, () => null),
+  null,
+  'missing BroadcastChannel support reports an unavailable subscriber',
+)
+assert.doesNotThrow(() => {
+  const subscriber = startPresentationSubscriber(room.code, () => undefined, () => {
+    throw new Error('BroadcastChannel construction blocked')
+  })
+  assert.equal(subscriber, null)
+})
+
+const throwingSubscriberChannel = new FakePresentationChannel()
+throwingSubscriberChannel.throwOnPost = true
+const throwingSubscriber = startPresentationSubscriber(
+  room.code,
+  () => undefined,
+  () => throwingSubscriberChannel,
+  {
+    setInterval: () => {
+      throw new Error('request timer should not start after a failed request')
+    },
+    clearInterval: () => undefined,
+  },
+)
+assert.equal(throwingSubscriber, null)
+assert.equal(throwingSubscriberChannel.closeCount, 1)
+assert.equal(throwingSubscriberChannel.onmessage, null)
+
+const subscribingChannel = new FakePresentationChannel()
+const intervalCallbacks: Array<() => void> = []
+let clearedTimer: number | null = null
+const receivedStates: typeof lobby[] = []
+const subscriber = startPresentationSubscriber(
+  room.code,
+  (state) => receivedStates.push(state as typeof lobby),
+  () => subscribingChannel,
+  {
+    setInterval: (callback, delayMs) => {
+      assert.equal(delayMs, 1000)
+      intervalCallbacks.push(callback)
+      return 42
+    },
+    clearInterval: (timer) => {
+      clearedTimer = timer
+    },
+  },
+)
+assert.ok(subscriber)
+assert.deepEqual(
+  subscribingChannel.messages[0],
+  { version: 1, roomCode: room.code, kind: 'request' },
+  'subscriber requests the current presentation immediately',
+)
+subscribingChannel.receive({ version: 1, roomCode: 'OTHER', kind: 'state', state: lobby })
+assert.equal(receivedStates.length, 0, 'subscriber ignores another room')
+subscribingChannel.receive({ version: 1, roomCode: room.code, kind: 'state', state: lobby })
+assert.deepEqual(receivedStates, [lobby])
+const scheduledRequest = intervalCallbacks[0]
+assert.ok(scheduledRequest)
+scheduledRequest()
+assert.equal(subscribingChannel.messages.length, 2, 'subscriber retries while waiting')
+subscriber.close()
+subscriber.close()
+assert.equal(clearedTimer, 42)
+assert.equal(subscribingChannel.closeCount, 1, 'subscriber cleanup is idempotent')
+assert.equal(subscribingChannel.onmessage, null)
 
 console.log('Presenter state includes public boards while excluding hidden Fast Money answers, moderator chats, votes, and private participant IDs.')
