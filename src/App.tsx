@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { CSSProperties, DragEvent, FormEvent } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -39,6 +39,7 @@ import {
   isLocalRoomInviteUrl,
   joinRoomCodeFromSearch,
 } from "./roomInvite";
+import { roomNoticeReducer } from "./roomNotice";
 import {
   forgetPlayerIdentity,
   readPlayerIdentityPreference,
@@ -50,6 +51,7 @@ import {
   type SharedTimerPreset,
   type SharedTimerState,
 } from "./sharedTimer";
+import { useTransientStatus } from "./transientStatus";
 import type {
   AvatarId,
   ChatMessage,
@@ -543,15 +545,16 @@ function AvatarPicker({
 }
 
 function PresenterTabButton({ roomCode }: { roomCode: string }) {
-  const [status, setStatus] = useState("");
+  const [status, statusController] = useTransientStatus();
   const open = () => {
+    const action = statusController.begin();
     const opened = openPresenterTab(roomCode);
-    setStatus(
+    action.show(
       opened
         ? "Presenter tab opened."
         : "Your browser blocked the presenter tab. Allow pop-ups, then try again.",
+      opened ? 1800 : undefined,
     );
-    if (opened) window.setTimeout(() => setStatus(""), 1800);
   };
 
   return (
@@ -571,17 +574,14 @@ function RoomInviteCard({
 }) {
   const invitationUrl = useMemo(() => browserRoomInviteUrl(roomCode), [roomCode]);
   const localOnly = isLocalRoomInviteUrl(invitationUrl);
-  const [status, setStatus] = useState("");
+  const [status, statusController] = useTransientStatus();
 
-  const copy = async (value: string, successMessage: string) => {
-    try {
-      await navigator.clipboard.writeText(value);
-      setStatus(successMessage);
-    } catch {
-      setStatus("Could not copy. Select the room code instead.");
-    }
-    window.setTimeout(() => setStatus(""), 1800);
-  };
+  const copy = (value: string, successMessage: string) => statusController.run(
+    () => navigator.clipboard.writeText(value),
+    successMessage,
+    "Could not copy. Select the room code instead.",
+    1800,
+  );
 
   return (
     <aside
@@ -4271,7 +4271,7 @@ export default function App() {
   const [selectedGame, setSelectedGame] = useState<GameConfig["kind"]>("feud");
   const [feudPack, setFeudPack] = useState<FeudGamePack>(starterFeudPack);
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
-  const [roomNotice, setRoomNotice] = useState("");
+  const [roomNotice, dispatchRoomNotice] = useReducer(roomNoticeReducer, "");
   const [preparingExistingRoom, setPreparingExistingRoom] = useState(false);
 
   useEffect(() => {
@@ -4284,7 +4284,7 @@ export default function App() {
       (snapshot) => setRoom(snapshot),
       (message) => {
         setRoom(null);
-        setRoomNotice(message);
+        dispatchRoomNotice({ type: "received", message });
         setScreen("home");
       },
     );
@@ -4295,12 +4295,14 @@ export default function App() {
     setPreparingExistingRoom(false);
     setConfig(nextConfig);
     setRoom(snapshot);
+    dispatchRoomNotice({ type: "room-created" });
     setScreen("host-lobby");
   };
 
   const joinRoom = async (code: string, name: string, avatarId: AvatarId | null) => {
     const snapshot = await roomClient.joinRoom(code, name, avatarId);
     setRoom(snapshot);
+    dispatchRoomNotice({ type: "room-joined" });
     setScreen("player-room");
   };
 
@@ -4351,9 +4353,15 @@ export default function App() {
   };
 
   const chooseGame = (kind: GameConfig["kind"]) => {
+    dispatchRoomNotice({ type: "new-room-flow" });
     setPreparingExistingRoom(false);
     setSelectedGame(kind);
     setScreen("setup");
+  };
+
+  const openJoinRoom = () => {
+    dispatchRoomNotice({ type: "new-room-flow" });
+    setScreen("join");
   };
 
   const gameAction = (command: SpinSolveCommand) =>
@@ -4370,13 +4378,13 @@ export default function App() {
           {roomNotice && (
             <div className="room-notice" role="status">
               {roomNotice}
-              <button onClick={() => setRoomNotice("")}>×</button>
+              <button onClick={() => dispatchRoomNotice({ type: "dismissed" })}>×</button>
             </div>
           )}
           <Home
             onChooseFeud={() => chooseGame("feud")}
             onChooseSpinSolve={() => chooseGame("spin-solve")}
-            onJoin={() => setScreen("join")}
+            onJoin={openJoinRoom}
           />
         </>
       )}
