@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { Window } from "happy-dom";
+import { StrictMode, act, createElement, useEffect } from "react";
 import {
   createTransientStatusController,
   type StatusScheduler,
+  useTransientStatus,
 } from "../src/transientStatus.js";
 
 class ControlledScheduler implements StatusScheduler<number> {
@@ -22,6 +25,10 @@ class ControlledScheduler implements StatusScheduler<number> {
   fire(handle: number): void {
     this.callbacks.get(handle)?.();
   }
+
+  fireAll(): void {
+    for (const callback of this.callbacks.values()) callback();
+  }
 }
 
 function deferred(): {
@@ -36,6 +43,29 @@ function deferred(): {
     reject = () => rejectPromise(new Error("clipboard unavailable"));
   });
   return { promise, resolve, reject };
+}
+
+function StrictLifecycleHarness({
+  scheduler,
+  operation,
+}: {
+  scheduler: ControlledScheduler;
+  operation: () => Promise<void>;
+}) {
+  const [, presenterStatus] = useTransientStatus(scheduler);
+  const [, clipboardStatus] = useTransientStatus(scheduler);
+
+  useEffect(() => {
+    presenterStatus.begin().show("Presenter tab opened.", 1800);
+    void clipboardStatus.run(
+      operation,
+      "Room code copied!",
+      "Could not copy. Select the room code instead.",
+      1800,
+    );
+  }, [clipboardStatus, operation, presenterStatus]);
+
+  return null;
 }
 
 {
@@ -164,6 +194,67 @@ function deferred(): {
   assert.equal(scheduler.callbacks.size, 0);
 }
 
+{
+  const testWindow = new Window({ url: "http://localhost/" });
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: testWindow,
+  });
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    value: testWindow.document,
+  });
+  Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
+    configurable: true,
+    value: true,
+  });
+
+  const { createRoot } = await import("react-dom/client");
+  const container = testWindow.document.createElement("div");
+  testWindow.document.body.append(container);
+  const root = createRoot(container as unknown as HTMLElement);
+  const scheduler = new ControlledScheduler();
+  const copy = deferred();
+  let operationStarts = 0;
+
+  await act(async () => {
+    root.render(createElement(
+      StrictMode,
+      null,
+      createElement(StrictLifecycleHarness, {
+        scheduler,
+        operation: () => {
+          operationStarts += 1;
+          return copy.promise;
+        },
+      }),
+    ));
+  });
+
+  assert.equal(operationStarts, 2, "Strict Mode should replay the mounted effect");
+  assert.equal(scheduler.callbacks.size, 2);
+
+  await act(async () => root.unmount());
+  assert.deepEqual(
+    [...scheduler.canceled],
+    [...scheduler.callbacks.keys()],
+    "Strict Mode replay and final unmount should cancel every reset timer",
+  );
+
+  const scheduledBeforeStaleWork = scheduler.callbacks.size;
+  scheduler.fireAll();
+  copy.resolve();
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(
+    scheduler.callbacks.size,
+    scheduledBeforeStaleWork,
+    "settling an operation after unmount should not schedule another reset",
+  );
+
+  testWindow.close();
+}
+
 console.log(
-  "Transient statuses cancel stale resets and ignore superseded or unmounted async results.",
+  "Transient statuses cancel stale resets and Strict Mode lifecycle work after unmount.",
 );

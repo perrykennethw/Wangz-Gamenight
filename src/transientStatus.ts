@@ -78,11 +78,13 @@ export function createTransientStatusController<Handle = number>(
   };
 }
 
-export function useTransientStatus(): readonly [string, TransientStatusController] {
+export function useTransientStatus<Handle = number>(
+  scheduler?: StatusScheduler<Handle>,
+): readonly [string, TransientStatusController] {
   const [status, setStatus] = useState("");
   const controller = useMemo(
-    () => createTransientStatusController(setStatus),
-    [setStatus],
+    () => createTransientStatusController(setStatus, scheduler),
+    [scheduler, setStatus],
   );
 
   useEffect(() => () => controller.cancel(), [controller]);
