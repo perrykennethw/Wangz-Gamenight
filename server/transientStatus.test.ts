@@ -204,6 +204,10 @@ function StrictLifecycleHarness({
     configurable: true,
     value: testWindow.document,
   });
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: testWindow.navigator,
+  });
   Object.defineProperty(globalThis, "IS_REACT_ACT_ENVIRONMENT", {
     configurable: true,
     value: true,
