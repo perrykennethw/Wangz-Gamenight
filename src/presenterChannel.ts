@@ -92,14 +92,83 @@ type PresentationMessage =
 
 const channelName = (code: string) => `wangz-presenter-${code}`;
 
-function postState(channel: BroadcastChannel, state: PresentationState): void {
+export interface PresentationTransportChannel {
+  onmessage: ((event: MessageEvent<unknown>) => void) | null;
+  postMessage(message: unknown): void;
+  close(): void;
+}
+
+export type PresentationChannelFactory = (
+  name: string,
+) => PresentationTransportChannel | null;
+
+interface PresentationPublisher {
+  publish(state: PresentationState): void;
+  close(): void;
+}
+
+interface PresentationSubscriber {
+  close(): void;
+}
+
+interface PresentationTimerScheduler {
+  setInterval(callback: () => void, delayMs: number): number;
+  clearInterval(timer: number): void;
+}
+
+const createBroadcastChannel: PresentationChannelFactory = (name) => {
+  if (typeof BroadcastChannel !== "function") return null;
+  return new BroadcastChannel(name);
+};
+
+const browserTimerScheduler: PresentationTimerScheduler = {
+  setInterval: (callback, delayMs) => window.setInterval(callback, delayMs),
+  clearInterval: (timer) => window.clearInterval(timer),
+};
+
+function openChannel(
+  name: string,
+  createChannel: PresentationChannelFactory,
+): PresentationTransportChannel | null {
+  try {
+    return createChannel(name);
+  } catch {
+    return null;
+  }
+}
+
+function closeChannel(channel: PresentationTransportChannel): void {
+  channel.onmessage = null;
+  try {
+    channel.close();
+  } catch {
+    // Presenter transport is optional; cleanup failures must not interrupt play.
+  }
+}
+
+function postMessage(
+  channel: PresentationTransportChannel,
+  message: PresentationMessage,
+): boolean {
+  try {
+    channel.postMessage(message);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function postState(
+  channel: PresentationTransportChannel,
+  state: PresentationState,
+): boolean {
   const message: PresentationMessage = {
     version: 1,
     roomCode: state.code,
     kind: "state",
     state,
   };
-  channel.postMessage(message);
+  return postMessage(channel, message);
 }
 
 function isPresentationMessage(
@@ -278,64 +347,130 @@ export function openPresenterTab(code: string): boolean {
   return true;
 }
 
+export function startPresentationPublisher(
+  state: PresentationState,
+  currentState: () => PresentationState | null,
+  createChannel: PresentationChannelFactory = createBroadcastChannel,
+): PresentationPublisher | null {
+  const channel = openChannel(channelName(state.code), createChannel);
+  if (!channel) return null;
+
+  let closed = false;
+  const publisher: PresentationPublisher = {
+    publish: (nextState) => {
+      if (!closed) postState(channel, nextState);
+    },
+    close: () => {
+      if (closed) return;
+      closed = true;
+      closeChannel(channel);
+    },
+  };
+  channel.onmessage = (event: MessageEvent<unknown>) => {
+    if (
+      isPresentationMessage(event.data, state.code) &&
+      event.data.kind === "request"
+    ) {
+      const latestState = currentState();
+      if (latestState) publisher.publish(latestState);
+    }
+  };
+  publisher.publish(state);
+  return publisher;
+}
+
+export function startPresentationSubscriber(
+  roomCode: string,
+  onState: (state: PresentationState) => void,
+  createChannel: PresentationChannelFactory = createBroadcastChannel,
+  timers: PresentationTimerScheduler = browserTimerScheduler,
+): PresentationSubscriber | null {
+  const channel = openChannel(channelName(roomCode), createChannel);
+  if (!channel) return null;
+
+  let closed = false;
+  let requestTimer: number | null = null;
+  const request = () => postMessage(channel, {
+    version: 1,
+    roomCode,
+    kind: "request",
+  });
+  const subscriber: PresentationSubscriber = {
+    close: () => {
+      if (closed) return;
+      closed = true;
+      if (requestTimer !== null) timers.clearInterval(requestTimer);
+      closeChannel(channel);
+    },
+  };
+  channel.onmessage = (event: MessageEvent<unknown>) => {
+    if (
+      isPresentationMessage(event.data, roomCode) &&
+      event.data.kind === "state"
+    )
+      onState(event.data.state);
+  };
+
+  if (!request()) {
+    subscriber.close();
+    return null;
+  }
+  try {
+    requestTimer = timers.setInterval(request, 1000);
+  } catch {
+    subscriber.close();
+    return null;
+  }
+  return subscriber;
+}
+
 export function usePresentationPublisher(
   state: PresentationState | null,
 ): void {
   const stateRef = useRef(state);
-  const channelRef = useRef<BroadcastChannel | null>(null);
+  const publisherRef = useRef<PresentationPublisher | null>(null);
   stateRef.current = state;
 
   useEffect(() => {
     if (!state) return;
-    const channel = new BroadcastChannel(channelName(state.code));
-    channelRef.current = channel;
-    channel.onmessage = (event: MessageEvent<unknown>) => {
-      if (
-        isPresentationMessage(event.data, state.code) &&
-        event.data.kind === "request" &&
-        stateRef.current
-      )
-        postState(channel, stateRef.current);
-    };
-    postState(channel, state);
+    const publisher = startPresentationPublisher(
+      state,
+      () => stateRef.current,
+    );
+    publisherRef.current = publisher;
     return () => {
-      channelRef.current = null;
-      channel.close();
+      publisherRef.current = null;
+      publisher?.close();
     };
   }, [state?.code]);
 
   useEffect(() => {
-    if (channelRef.current && state) postState(channelRef.current, state);
+    if (publisherRef.current && state) publisherRef.current.publish(state);
   }, [state]);
 }
 
-export function usePresentation(roomCode: string): PresentationState | null {
+export type PresentationTransportStatus = "waiting" | "connected" | "unavailable";
+
+export function usePresentation(roomCode: string): {
+  state: PresentationState | null;
+  status: PresentationTransportStatus;
+} {
   const [state, setState] = useState<PresentationState | null>(null);
+  const [status, setStatus] = useState<PresentationTransportStatus>("waiting");
 
   useEffect(() => {
-    const channel = new BroadcastChannel(channelName(roomCode));
-    const request = () => {
-      const message: PresentationMessage = {
-        version: 1,
-        roomCode,
-        kind: "request",
-      };
-      channel.postMessage(message);
-    };
-    channel.onmessage = (event: MessageEvent<unknown>) => {
-      if (
-        isPresentationMessage(event.data, roomCode) &&
-        event.data.kind === "state"
-      )
-        setState(event.data.state);
-    };
-    request();
-    const requestTimer = window.setInterval(request, 1000);
-    return () => {
-      window.clearInterval(requestTimer);
-      channel.close();
-    };
+    setState(null);
+    setStatus("waiting");
+    const subscriber = startPresentationSubscriber(roomCode, (nextState) => {
+      setState(nextState);
+      setStatus("connected");
+    });
+    if (!subscriber) {
+      setStatus("unavailable");
+      return;
+    }
+    return () => subscriber.close();
   }, [roomCode]);
 
-  return state;
+  return { state, status };
 }

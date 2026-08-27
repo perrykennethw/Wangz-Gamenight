@@ -4211,7 +4211,7 @@ function ContestantPresenterCard({
 }
 
 function PresenterScreen({ roomCode }: { roomCode: string }) {
-  const state = usePresentation(roomCode);
+  const { state, status } = usePresentation(roomCode);
 
   useEffect(() => {
     const previousTitle = document.title;
@@ -4222,6 +4222,7 @@ function PresenterScreen({ roomCode }: { roomCode: string }) {
   }, [roomCode]);
 
   if (!state) {
+    const unavailable = status === "unavailable";
     return (
       <main className="presenter-waiting">
         <Brand />
@@ -4229,13 +4230,14 @@ function PresenterScreen({ roomCode }: { roomCode: string }) {
           <i /> Presenter display
         </span>
         <h1>
-          Waiting for
+          {unavailable ? "Presenter" : "Waiting for"}
           <br />
-          <em>the moderator.</em>
+          <em>{unavailable ? "unavailable." : "the moderator."}</em>
         </h1>
         <p>
-          Keep the moderator tab open on this device. Room {roomCode} will
-          appear here automatically.
+          {unavailable
+            ? "This browser cannot start the presenter connection. Live play can continue in the moderator tab."
+            : `Keep the moderator tab open on this device. Room ${roomCode} will appear here automatically.`}
         </p>
       </main>
     );
