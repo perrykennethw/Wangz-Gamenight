@@ -30,6 +30,7 @@
     "test:room-client": "tsx server/roomClient.test.ts",
     "test:room-notices": "tsx server/roomNotice.test.ts && vitest run server/roomNotice.ui.test.tsx --environment happy-dom",
     "test:feud-awards": "vitest run server/feudAward.ui.test.tsx --environment happy-dom",
+    "test:team-chat": "vitest run server/teamChat.ui.test.tsx --environment happy-dom",
     "test:player-preferences": "tsx server/playerIdentityPreference.test.ts",
     "test:player-session": "tsx server/playerSessionIdentity.test.ts",
     "test:turn-order": "tsx server/feudTurnOrder.test.ts",
