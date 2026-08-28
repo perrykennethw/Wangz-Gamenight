@@ -53,6 +53,7 @@ import {
   joinRoomCodeFromSearch,
 } from "./roomInvite";
 import { roomNoticeReducer } from "./roomNotice";
+import { PresenterWrongAnswerCue } from "./PresenterWrongAnswerCue";
 import {
   forgetPlayerIdentity,
   readPlayerIdentityPreference,
@@ -3792,6 +3793,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
   const [fastMoneyError, setFastMoneyError] = useState("");
   const [questionNavigationError, setQuestionNavigationError] = useState("");
   const [isNavigatingQuestion, setIsNavigatingQuestion] = useState(false);
+  const [wrongAnswerCueRevision, setWrongAnswerCueRevision] = useState(0);
   const awardedQuestionIds = useRef(new Set<string>());
   const roundFinishing = useRef(false);
 
@@ -3841,6 +3843,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
           question,
           revealed,
           strikes,
+          wrongAnswerCueRevision,
           scores,
           roundPot,
           winner,
@@ -3853,6 +3856,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
       question,
       revealed,
       strikes,
+      wrongAnswerCueRevision,
       scores,
       roundPot,
       winner,
@@ -3876,6 +3880,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
   const addStrike = () => {
     if (roundResolution) return;
     void gameAudio.play("wrong-answer");
+    setWrongAnswerCueRevision((current) => current + 1);
     dispatchQuestionNavigation({ type: "set-strikes", strikes: strikes + 1 });
     if (room.feudTurns.activeTeam && strikes < 2) {
       void roomClient.advanceFeudTurn().catch(() => undefined);
@@ -4366,6 +4371,7 @@ function PresenterFeud({ state }: { state: FeudPresentation }) {
     state.decision.controllingTeam === "one" ? state.teamOne : state.teamTwo;
   return (
     <main className="game-shell presenter-game-shell">
+      <PresenterWrongAnswerCue revision={state.wrongAnswerCueRevision} />
       <header className="presenter-topbar presenter-topbar--game">
         <Brand compact />
         <span className="presenter-live">

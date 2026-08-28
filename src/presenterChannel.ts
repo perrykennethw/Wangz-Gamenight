@@ -35,6 +35,7 @@ export interface FeudPresentation extends PresentationBase {
   question: { answers: FeudAnswer[] };
   revealed: number[];
   strikes: number;
+  wrongAnswerCueRevision: number;
   scores: [number, number];
   roundPot: number;
   buzzer: {
@@ -81,6 +82,7 @@ interface FeudBoardInput {
   question: { prompt: string; answers: FeudAnswer[] };
   revealed: number[];
   strikes: number;
+  wrongAnswerCueRevision: number;
   scores: [number, number];
   roundPot: number;
   winner: { name: string; score: number } | null;
@@ -234,6 +236,7 @@ export function createFeudPresentation(
     },
     revealed: [...input.revealed],
     strikes: input.strikes,
+    wrongAnswerCueRevision: input.wrongAnswerCueRevision,
     scores: [...input.scores],
     roundPot: input.roundPot,
     buzzer: {
