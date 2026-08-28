@@ -132,6 +132,12 @@ function input(name: string): HTMLInputElement {
   return match;
 }
 
+function checkbox(name: string): HTMLInputElement {
+  const match = input(name);
+  if (match.type !== "checkbox") throw new Error(`Input is not a checkbox: ${name}`);
+  return match;
+}
+
 async function fillInput(name: string, value: string): Promise<void> {
   await act(async () => {
     const field = input(name);
@@ -147,13 +153,21 @@ async function submitClosestForm(name: string): Promise<void> {
   });
 }
 
-async function renderGame(winningScore = 300): Promise<void> {
+async function renderGame(
+  winningScore = 300,
+  moderatorShortcutsEnabled = false,
+): Promise<void> {
   root = createRoot(document.querySelector("#root")!);
   await act(async () => {
     root?.render(<App />);
   });
 
   await click("Set up Family Feud");
+  if (moderatorShortcutsEnabled) {
+    await act(async () => {
+      checkbox("Enable moderator keyboard shortcuts").click();
+    });
+  }
   if (winningScore !== 300) {
     await act(async () => {
       const radio = document.querySelector<HTMLInputElement>(`input[value="${winningScore}"]`);
@@ -214,6 +228,53 @@ afterEach(async () => {
 });
 
 describe("Family Feud round awards", () => {
+  it("starts with moderator shortcuts disabled while visible controls keep working", async () => {
+    await renderGame();
+
+    expect(checkbox("Enable moderator keyboard shortcuts").checked).toBe(false);
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "1" }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "x" }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "z" }));
+    });
+
+    expect(button("Reveal answer 1: Clean the house, 34 points")).toBeTruthy();
+    expect(document.querySelector('[aria-label="0 strikes"]')).not.toBeNull();
+    expect(roomClientMock.armBuzzer).not.toHaveBeenCalled();
+
+    await click("Reveal answer 1: Clean the house, 34 points");
+    await click("Add strike X");
+    expect(button("Clean the house, 34 points")).toBeTruthy();
+    expect(document.querySelector('[aria-label="1 strikes"]')).not.toBeNull();
+  });
+
+  it("can enable shortcuts during setup and turn them off during the game", async () => {
+    await renderGame(300, true);
+
+    const toggle = checkbox("Enable moderator keyboard shortcuts");
+    expect(toggle.checked).toBe(true);
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "1" }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "x" }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "z" }));
+    });
+
+    expect(button("Clean the house, 34 points")).toBeTruthy();
+    expect(document.querySelector('[aria-label="1 strikes"]')).not.toBeNull();
+    expect(roomClientMock.armBuzzer).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      toggle.click();
+    });
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "2" }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "x" }));
+    });
+    expect(toggle.checked).toBe(false);
+    expect(button("Reveal answer 2: Hide the clutter, 21 points")).toBeTruthy();
+    expect(document.querySelector('[aria-label="1 strikes"]')).not.toBeNull();
+  });
+
   it("publishes a new wrong-answer cue only when the moderator adds a strike", async () => {
     await renderGame();
 

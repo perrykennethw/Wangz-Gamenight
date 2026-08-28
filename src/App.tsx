@@ -120,11 +120,18 @@ interface SetupProps {
   feudPack: FeudGamePack;
   initialConfig?: GameConfig;
   existingRoomCode?: string;
+  moderatorShortcutsEnabled: boolean;
   onBack: () => void;
   onBuildPack: () => void;
   onChooseKind?: (kind: GameConfig["kind"]) => void;
+  onModeratorShortcutsEnabledChange: (enabled: boolean) => void;
   onSelectPack: (pack: FeudGamePack) => void;
   onStart: (config: GameConfig) => Promise<void>;
+}
+
+interface ModeratorShortcutsToggleProps {
+  enabled: boolean;
+  onChange: (enabled: boolean) => void;
 }
 
 interface ScoreCardProps {
@@ -157,6 +164,8 @@ interface GameProps {
   config: FeudGameConfig;
   roomCode: string;
   room: RoomSnapshot;
+  moderatorShortcutsEnabled: boolean;
+  onModeratorShortcutsEnabledChange: (enabled: boolean) => void;
   onExit: () => void;
   onReplay: () => Promise<void>;
   onChangeGame: () => Promise<void>;
@@ -183,6 +192,31 @@ const Arrow = () => (
     />
   </svg>
 );
+
+function ModeratorShortcutsToggle({
+  enabled,
+  onChange,
+}: ModeratorShortcutsToggleProps) {
+  return (
+    <label className="moderator-shortcuts-toggle">
+      <input
+        type="checkbox"
+        checked={enabled}
+        onChange={(event) => onChange(event.target.checked)}
+        aria-label="Enable moderator keyboard shortcuts"
+      />
+      <span aria-hidden="true" className="moderator-shortcuts-toggle__switch" />
+      <span>
+        <strong>Keyboard shortcuts {enabled ? "on" : "off"}</strong>
+        <small>
+          {enabled
+            ? "Z, 1–8, X, A, and B control the live game."
+            : "Use the on-screen moderator controls. Shortcuts start off for every room."}
+        </small>
+      </span>
+    </label>
+  );
+}
 
 function Brand({ compact = false }: BrandProps) {
   return (
@@ -765,9 +799,11 @@ function Setup({
   feudPack,
   initialConfig,
   existingRoomCode,
+  moderatorShortcutsEnabled,
   onBack,
   onBuildPack,
   onChooseKind,
+  onModeratorShortcutsEnabledChange,
   onSelectPack,
   onStart,
 }: SetupProps) {
@@ -954,6 +990,13 @@ function Setup({
                     </label>
                   ))}
                 </div>
+              </fieldset>
+              <fieldset className="moderator-shortcuts-setting">
+                <legend>Moderator controls</legend>
+                <ModeratorShortcutsToggle
+                  enabled={moderatorShortcutsEnabled}
+                  onChange={onModeratorShortcutsEnabledChange}
+                />
               </fieldset>
             </>
           ) : (
@@ -3701,7 +3744,13 @@ function WinnerModal({ winner, score, onReplay, onChangeGame, onHome, onFastMone
   );
 }
 
-function HostBuzzerPanel({ room }: { room: RoomSnapshot }) {
+function HostBuzzerPanel({
+  room,
+  showShortcutHint,
+}: {
+  room: RoomSnapshot;
+  showShortcutHint: boolean;
+}) {
   const [isUpdating, setIsUpdating] = useState(false);
   const [error, setError] = useState("");
   const winner = room.buzzer.winner;
@@ -3804,7 +3853,7 @@ function HostBuzzerPanel({ room }: { room: RoomSnapshot }) {
             onClick={() => run("arm")}
             disabled={isUpdating}
           >
-            {winner ? "Arm again" : "Arm buzzer"} <kbd>Z</kbd>
+            {winner ? "Arm again" : "Arm buzzer"} <kbd hidden={!showShortcutHint}>Z</kbd>
           </button>
         )}
         <button
@@ -3823,7 +3872,16 @@ function HostBuzzerPanel({ room }: { room: RoomSnapshot }) {
   );
 }
 
-function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GameProps) {
+function Game({
+  config,
+  roomCode,
+  room,
+  moderatorShortcutsEnabled,
+  onModeratorShortcutsEnabledChange,
+  onExit,
+  onReplay,
+  onChangeGame,
+}: GameProps) {
   const [round, setRound] = useState(1);
   const [questionNavigation, dispatchQuestionNavigation] = useReducer(
     feudQuestionNavigationReducer,
@@ -4016,6 +4074,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
   };
 
   useEffect(() => {
+    if (!moderatorShortcutsEnabled) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (room.game?.kind === "fast-money") return;
       const target = event.target;
@@ -4193,9 +4252,15 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
       </section>
 
       <section className="host-controls">
+        <div className="moderator-shortcuts-panel">
+          <ModeratorShortcutsToggle
+            enabled={moderatorShortcutsEnabled}
+            onChange={onModeratorShortcutsEnabledChange}
+          />
+        </div>
         <GameAudioControls />
         <SharedTimerHostPanel timer={room.timer} />
-        <HostBuzzerPanel room={room} />
+        <HostBuzzerPanel room={room} showShortcutHint={moderatorShortcutsEnabled} />
         <HostPlayPassPanel room={room} />
         <HostFeudTurnPanel room={room} />
         <div className="strike-panel">
@@ -4219,7 +4284,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
               Undo
             </button>
             <button onClick={addStrike} disabled={roundResolution !== null}>
-              Add strike <kbd>X</kbd>
+              Add strike <kbd hidden={!moderatorShortcutsEnabled}>X</kbd>
             </button>
           </div>
         </div>
@@ -4255,10 +4320,10 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
               <span>Award {roundPot} points</span>
               <div>
                 <button disabled={roundPot === 0} onClick={() => awardRound(0)}>
-                  {config.teamOne} <kbd>A</kbd>
+                  {config.teamOne} <kbd hidden={!moderatorShortcutsEnabled}>A</kbd>
                 </button>
                 <button disabled={roundPot === 0} onClick={() => awardRound(1)}>
-                  {config.teamTwo} <kbd>B</kbd>
+                  {config.teamTwo} <kbd hidden={!moderatorShortcutsEnabled}>B</kbd>
                 </button>
               </div>
             </>
@@ -4269,9 +4334,15 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
       <HostHuddles room={room} />
 
       <footer className="game-help">
-        Host shortcuts: <kbd>Z</kbd> opens/closes buzzer · <kbd>1</kbd>–
-        <kbd>8</kbd> reveal answers · <kbd>X</kbd> adds a strike · first team to{" "}
-        {config.winningScore} wins
+        {moderatorShortcutsEnabled ? (
+          <>
+            Host shortcuts: <kbd>Z</kbd> opens/closes buzzer · <kbd>1</kbd>–
+            <kbd>8</kbd> reveal answers · <kbd>X</kbd> adds a strike · first team to{" "}
+            {config.winningScore} wins
+          </>
+        ) : (
+          <>Keyboard shortcuts are off. Use the on-screen moderator controls.</>
+        )}
       </footer>
 
       {winner && (
@@ -4725,6 +4796,7 @@ export default function App() {
   const [room, setRoom] = useState<RoomSnapshot | null>(null);
   const [roomNotice, dispatchRoomNotice] = useReducer(roomNoticeReducer, "");
   const [preparingExistingRoom, setPreparingExistingRoom] = useState(false);
+  const [moderatorShortcutsEnabled, setModeratorShortcutsEnabled] = useState(false);
   const [connectionStatus, setConnectionStatus] = useState<RoomConnectionStatus>({
     state: "online",
     message: "",
@@ -4796,6 +4868,7 @@ export default function App() {
     setRoom(null);
     setConfig(null);
     setPreparingExistingRoom(false);
+    setModeratorShortcutsEnabled(false);
     setScreen("home");
   };
 
@@ -4834,6 +4907,7 @@ export default function App() {
   const chooseGame = (kind: GameConfig["kind"]) => {
     dispatchRoomNotice({ type: "new-room-flow" });
     setPreparingExistingRoom(false);
+    setModeratorShortcutsEnabled(false);
     setSelectedGame(kind);
     setScreen("setup");
   };
@@ -4875,12 +4949,14 @@ export default function App() {
           kind={selectedGame}
           feudPack={feudPack}
           initialConfig={config ?? undefined}
+          moderatorShortcutsEnabled={moderatorShortcutsEnabled}
           onBack={() => {
             setPreparingExistingRoom(false);
             setScreen("host-lobby");
           }}
           onBuildPack={() => setScreen("builder")}
           onChooseKind={setSelectedGame}
+          onModeratorShortcutsEnabledChange={setModeratorShortcutsEnabled}
           onSelectPack={(pack) => {
             setFeudPack(pack);
             saveFeudGamePackDraft(pack);
@@ -4891,8 +4967,10 @@ export default function App() {
         <Setup
           kind={selectedGame}
           feudPack={feudPack}
+          moderatorShortcutsEnabled={moderatorShortcutsEnabled}
           onBack={() => setScreen("home")}
           onBuildPack={() => setScreen("builder")}
+          onModeratorShortcutsEnabledChange={setModeratorShortcutsEnabled}
           onSelectPack={(pack) => {
             setFeudPack(pack);
             saveFeudGamePackDraft(pack);
@@ -4938,6 +5016,8 @@ export default function App() {
           config={config}
           roomCode={room.code}
           room={room}
+          moderatorShortcutsEnabled={moderatorShortcutsEnabled}
+          onModeratorShortcutsEnabledChange={setModeratorShortcutsEnabled}
           onExit={leaveRoom}
           onReplay={() => prepareNextGame(false)}
           onChangeGame={() => prepareNextGame(true)}
