@@ -20,6 +20,10 @@ _Avoid_: Moderator, admin
 A person who joins the room, occupies a roster seat, and may act for a team.
 _Avoid_: Participant, guest
 
+**Waiting Player**:
+A player who joins after a game starts and is waiting for the host to assign a team or for the next eligible question boundary.
+_Avoid_: Spectator, pending participant, late joiner
+
 **Player Identity**:
 The display name and avatar associated with a player in a room.
 _Avoid_: Account, profile

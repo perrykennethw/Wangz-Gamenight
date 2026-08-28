@@ -14,10 +14,11 @@ const pack = starterFeudPack.fastMoney
 assert.ok(pack)
 
 const participants: Participant[] = [
-  { id: 'p1', name: 'Avery', avatarId: 'Avery.svg', team: 'one' },
-  { id: 'p2', name: 'Blake', avatarId: 'Blake.svg', team: 'one' },
-  { id: 'bench', name: 'Casey', avatarId: null, team: 'one' },
-  { id: 'opponent', name: 'Devon', avatarId: null, team: 'two' },
+  { id: 'p1', name: 'Avery', avatarId: 'Avery.svg', team: 'one', status: 'active' },
+  { id: 'p2', name: 'Blake', avatarId: 'Blake.svg', team: 'one', status: 'active' },
+  { id: 'bench', name: 'Casey', avatarId: null, team: 'one', status: 'active' },
+  { id: 'opponent', name: 'Devon', avatarId: null, team: 'two', status: 'active' },
+  { id: 'waiting', name: 'Emery', avatarId: null, team: 'one', status: 'waiting' },
 ]
 const host: FastMoneyActor = { role: 'host', participantId: null, team: null }
 const player = (participantId: string): FastMoneyActor => ({
@@ -40,6 +41,7 @@ const rejects = (actor: FastMoneyActor, command: Exclude<FastMoneyCommand, { typ
 }
 
 rejects(player('opponent'), { type: 'vote', participantIds: ['p1', 'p2'] }, /winning team/i)
+rejects(player('p1'), { type: 'vote', participantIds: ['p1', 'waiting'] }, /connected players/i)
 run(player('p1'), { type: 'vote', participantIds: ['p1', 'p2'] })
 run(player('p2'), { type: 'vote', participantIds: ['p2', 'bench'] })
 const selectionView = viewFastMoney(state, pack, participants, host)

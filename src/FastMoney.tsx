@@ -294,7 +294,9 @@ function ReviewRow({
 }
 
 function HostSelection({ room, game }: { room: RoomSnapshot; game: FastMoneyView }) {
-  const candidates = room.participants.filter((participant) => participant.team === game.eligibleTeam);
+  const candidates = room.participants.filter((participant) => (
+    participant.status === "active" && participant.team === game.eligibleTeam
+  ));
   const leaders = useMemo(() => [...candidates]
     .sort((a, b) => (game.voteCounts[b.id] ?? 0) - (game.voteCounts[a.id] ?? 0))
     .slice(0, 2), [candidates, game.voteCounts]);
@@ -371,7 +373,8 @@ function HostReady({ game, room }: { game: FastMoneyView; room: RoomSnapshot }) 
   const [error, setError] = useState("");
   const contestant = game.currentContestant ?? 0;
   const candidates = room.participants.filter((participant) => (
-    participant.team === game.eligibleTeam
+    participant.status === "active"
+    && participant.team === game.eligibleTeam
     && participant.id !== game.contestants[contestant === 0 ? 1 : 0]?.id
   ));
   const [replacementId, setReplacementId] = useState(game.contestants[contestant]?.id ?? candidates[0]?.id ?? "");
@@ -559,7 +562,9 @@ export function FastMoneyHost({ room }: { room: RoomSnapshot }) {
 }
 
 function PlayerVote({ room, game }: { room: RoomSnapshot; game: FastMoneyView }) {
-  const candidates = room.participants.filter((participant) => participant.team === game.eligibleTeam);
+  const candidates = room.participants.filter((participant) => (
+    participant.status === "active" && participant.team === game.eligibleTeam
+  ));
   const [selected, setSelected] = useState<string[]>(game.viewerVotes);
   const [status, setStatus] = useState("");
   const toggle = (participantId: string) => setSelected((current) => current.includes(participantId)

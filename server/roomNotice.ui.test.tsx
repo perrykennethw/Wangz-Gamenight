@@ -40,7 +40,7 @@ class TestBroadcastChannel {
 
 function roomSnapshot(viewer: RoomViewer): RoomSnapshot {
   const participant = viewer.role === "player"
-    ? [{ id: viewer.participantId, name: "Avery", avatarId: null, team: viewer.team }]
+    ? [{ id: viewer.participantId, name: "Avery", avatarId: null, team: viewer.team, status: "active" as const }]
     : [];
 
   return {

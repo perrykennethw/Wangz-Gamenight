@@ -4,6 +4,7 @@ import type { FeudTurnOrderView } from "./feudTurnOrder.js";
 export type TeamId = "one" | "two";
 export type RoomPhase = "lobby" | "playing";
 export type ParticipantRole = "host" | "player";
+export type PlayerStatus = "active" | "waiting";
 export type BuzzerStatus = "idle" | "armed" | "locked";
 export type PlayPassChoice = "play" | "pass";
 export type AvatarId = string;
@@ -82,6 +83,7 @@ export interface Participant {
   name: string;
   avatarId: AvatarId | null;
   team: TeamId | null;
+  status: PlayerStatus;
 }
 
 export interface ChatMessage {
@@ -366,6 +368,9 @@ export interface ClientToServerEvents {
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "feud:end-question": (
+    reply: (result: RoomResult<RoomSnapshot>) => void,
+  ) => void;
+  "feud:prepare-next-question": (
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "feud:advance-turn": (

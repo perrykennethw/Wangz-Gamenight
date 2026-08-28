@@ -552,6 +552,19 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 .host-unassigned > p { margin: 6px 0 12px; color: #59677a; font-size: 9px; }
 .host-unassigned__players { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .host-unassigned .host-roster-player { background: var(--paper); border-color: #7890ad; }
+.host-waiting-players { max-width: 980px; margin: 18px auto; padding: 17px; color: var(--ink); background: #fff4cf; border-left: 7px solid var(--coral); box-shadow: 0 6px 0 rgba(1,9,24,.22); }
+.host-waiting-players > header { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
+.host-waiting-players > header span { color: #8c4b2f; font-size: 8px; font-weight: 900; letter-spacing: .15em; text-transform: uppercase; }
+.host-waiting-players > header h2 { margin: 3px 0 0; font-family: var(--display); font-size: 28px; letter-spacing: .03em; text-transform: uppercase; }
+.host-waiting-players > header > strong { display: grid; place-items: center; width: 36px; height: 36px; color: var(--paper); background: var(--coral); font-family: var(--display); font-size: 21px; }
+.host-waiting-players > p { margin: 8px 0 14px; color: #665e51; font-size: 10px; line-height: 1.45; }
+.host-waiting-players__list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.host-waiting-players__list article { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 6px 10px; padding: 9px; background: var(--paper); border-left: 4px solid var(--gold); }
+.host-waiting-players__list article > small { grid-column: 1; color: #68717c; font-size: 8px; font-weight: 800; }
+.host-waiting-players__list article > div { grid-row: 1 / span 2; grid-column: 2; display: grid; gap: 4px; }
+.host-waiting-players__list button { min-width: 105px; padding: 7px 9px; color: var(--paper); background: var(--blue); border: 0; font-size: 7px; font-weight: 900; letter-spacing: .06em; text-transform: uppercase; }
+.host-waiting-players__list button:disabled { color: #6c675d; background: #ded9cf; cursor: not-allowed; }
+.host-waiting-players .team-update-message, .host-waiting-players .form-error { margin-bottom: 0; }
 .host-lobby-footer { display: grid; grid-template-columns: 1fr 390px; align-items: center; gap: 50px; margin-top: 22px; }
 .host-lobby-footer > p { display: flex; gap: 10px; max-width: 510px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .host-lobby-footer > p span { color: var(--gold); }
@@ -891,6 +904,12 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 .player-feud-experience { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); align-items: start; gap: 13px; }
 .player-feud-experience > :not(.player-chat-drawer, .player-chat-locked) { grid-column: 1; }
 .player-feud-experience > .player-chat-drawer, .player-feud-experience > .player-chat-locked { grid-row: 1 / span 5; grid-column: 2; }
+.waiting-player-experience { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(280px, .85fr); align-items: start; gap: 13px; }
+.waiting-player-card { min-height: 360px; padding: clamp(28px, 5vw, 58px); color: var(--ink); background: var(--gold); border: 5px solid var(--ink); box-shadow: 8px 8px 0 var(--coral); }
+.waiting-player-card h1 { margin: 22px 0; font-family: var(--display); font-size: clamp(44px, 7vw, 78px); line-height: .82; letter-spacing: -.01em; text-transform: uppercase; }
+.waiting-player-card h1 em { color: var(--blue); font-style: normal; }
+.waiting-player-card > p:last-child { max-width: 570px; margin-bottom: 0; font-size: 12px; font-weight: 700; line-height: 1.55; }
+.waiting-player-experience > .player-chat-drawer, .waiting-player-experience > .player-chat-locked { min-width: 0; }
 .player-buzzer-action { position: relative; display: grid; align-content: stretch; min-height: 430px; padding: 20px; overflow: hidden; color: var(--ink); background: var(--gold); }
 .player-buzzer-action--two { background: var(--coral); }
 .player-buzzer-action::before { content: ''; position: absolute; inset: -45%; background: repeating-conic-gradient(transparent 0deg 11deg, rgba(255,255,255,.18) 11deg 16deg); opacity: .45; transform: rotate(-5deg); }
@@ -1318,6 +1337,8 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
   .roster-grid { grid-template-columns: 1fr; }
   .team-roster { min-height: 180px; }
   .host-unassigned__players { grid-template-columns: 1fr; }
+  .host-waiting-players { margin: 12px 10px; padding: 13px; }
+  .host-waiting-players__list { grid-template-columns: 1fr; }
   .host-roster-player { align-items: stretch; flex-direction: column; }
   .host-roster-player__actions button { flex: 1; }
   .host-lobby-footer { grid-template-columns: 1fr; gap: 16px; }
@@ -1341,6 +1362,9 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
   .player-primary-action { scroll-margin-top: 8px; }
   .player-feud-experience { grid-template-columns: 1fr; }
   .player-feud-experience > :not(.player-chat-drawer, .player-chat-locked), .player-feud-experience > .player-chat-drawer, .player-feud-experience > .player-chat-locked { grid-row: auto; grid-column: 1; }
+  .waiting-player-experience { grid-template-columns: 1fr; }
+  .waiting-player-card { min-height: 0; padding: 28px 19px; box-shadow: 5px 5px 0 var(--coral); }
+  .waiting-player-card h1 { margin: 17px 0; font-size: clamp(42px, 14vw, 62px); }
   .player-buzzer-action { min-height: 350px; padding: 14px; }
   .player-buzzer-action > button { min-height: 275px; padding: 22px 14px; }
   .player-buzzer-action > button strong { font-size: clamp(48px, 17vw, 70px); }

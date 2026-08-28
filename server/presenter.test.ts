@@ -25,8 +25,8 @@ const room: RoomSnapshot = {
   gameRevision: 1,
   config,
   participants: [
-    { id: 'private-player-id', name: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' },
-    { id: 'other-private-id', name: 'Blake', avatarId: null, team: 'two' },
+    { id: 'private-player-id', name: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one', status: 'active' },
+    { id: 'other-private-id', name: 'Blake', avatarId: null, team: 'two', status: 'active' },
   ],
   messages: [{ id: 'secret-message-id', senderId: 'private-player-id', senderName: 'Avery', senderAvatarId: 'contestants/rocket.webp', team: 'one', text: 'SECRET HUDDLE', sentAt: 1 }],
   teamChats: {

@@ -249,7 +249,11 @@ function endFeudQuestion(room: Room): void {
 }
 
 function playPassViewFor(room: Room, connection: Connection, participant?: Participant): PlayPassPollView {
-  const canView = connection.role === 'host' || (participant?.team && participant.team === room.playPass.team)
+  const canView = connection.role === 'host' || (
+    participant?.status === 'active'
+    && participant.team
+    && participant.team === room.playPass.team
+  )
   if (!canView) {
     return {
       ...closedPlayPass(),
@@ -308,7 +312,7 @@ function snapshotFor(room: Room, socketId: string): RoomSnapshot {
       reason: room.chatLockedTeam ? 'The answering team is live. This huddle reopens when the host ends the question.' : null,
     },
     playPass: playPassViewFor(room, connection, participant),
-    feudTurns: viewFeudTurnOrder(room.feudTurns, connectedParticipantIds(room)),
+    feudTurns: viewFeudTurnOrder(room.feudTurns, activeConnectedParticipantIds(room)),
     buzzer: room.buzzer,
     timer: room.timer,
     viewer: connection.role === 'host'
@@ -318,10 +322,10 @@ function snapshotFor(room: Room, socketId: string): RoomSnapshot {
       ? room.game.kind === 'spin-solve'
         ? viewSpinSolveGame(room.game)
         : room.config.kind === 'feud' && room.config.pack.fastMoney
-          ? viewFastMoney(room.game, room.config.pack.fastMoney, [...room.participants.values()], {
+          ? viewFastMoney(room.game, room.config.pack.fastMoney, activeParticipants(room), {
               role: connection.role,
               participantId: participant?.id ?? null,
-              team: participant?.team ?? null,
+              team: participant?.status === 'active' ? participant.team : null,
             })
           : null
       : null,
@@ -465,10 +469,15 @@ function prepareRoomForNextGame(room: Room, config: GameConfig): void {
   room.game = null
   room.buzzer = { status: 'idle', winner: null, representatives: { one: null, two: null } }
   room.timer = createIdleSharedTimer()
+  for (const participant of room.participants.values()) participant.status = 'active'
+}
+
+function activeParticipants(room: Room): Participant[] {
+  return [...room.participants.values()].filter((participant) => participant.status === 'active')
 }
 
 function playersForTeam(room: Room, team: TeamId): Participant[] {
-  return [...room.participants.values()].filter((participant) => participant.team === team)
+  return activeParticipants(room).filter((participant) => participant.team === team)
 }
 
 function connectedParticipantIds(room: Room): Set<string> {
@@ -479,11 +488,20 @@ function connectedParticipantIds(room: Room): Set<string> {
   )
 }
 
+function activeConnectedParticipantIds(room: Room): Set<string> {
+  const connected = connectedParticipantIds(room)
+  return new Set(
+    activeParticipants(room)
+      .map((participant) => participant.id)
+      .filter((participantId) => connected.has(participantId)),
+  )
+}
+
 function repairRoomFeudTurns(room: Room): void {
   room.feudTurns = repairFeudTurnState(
     room.feudTurns,
-    [...room.participants.values()],
-    connectedParticipantIds(room),
+    activeParticipants(room),
+    activeConnectedParticipantIds(room),
   )
 }
 
@@ -492,7 +510,7 @@ function seedRoomFeudTurns(room: Room): void {
   room.feudTurns = seedFeudTurnsAfterRepresentatives(
     room.feudTurns,
     room.buzzer.representatives,
-    connectedParticipantIds(room),
+    activeConnectedParticipantIds(room),
   )
 }
 
@@ -653,14 +671,22 @@ io.on('connection', (socket) => {
       return
     }
 
-    if (room.phase !== 'lobby') return reply({ ok: false, error: 'That game has already started.' })
+    if (room.phase === 'playing' && room.config.kind !== 'feud') {
+      return reply({ ok: false, error: 'Late joining is currently available for Family Feud rooms.' })
+    }
     if (room.participants.size >= 20) return reply({ ok: false, error: 'That room is full.' })
     if ([...room.participants.values()].some((player) => player.name.toLowerCase() === cleanName.toLowerCase())) {
       return reply({ ok: false, error: 'Someone in this room is already using that name.' })
     }
 
     leaveCurrentRoom(socket)
-    const participant: Participant = { id: randomUUID(), name: cleanName, avatarId: cleanAvatarId, team: null }
+    const participant: Participant = {
+      id: randomUUID(),
+      name: cleanName,
+      avatarId: cleanAvatarId,
+      team: null,
+      status: room.phase === 'playing' ? 'waiting' : 'active',
+    }
     room.participants.set(participant.id, participant)
     room.participantSessions.set(cleanSessionId, participant.id)
     room.connections.set(socket.id, { role: 'player', participantId: participant.id })
@@ -721,10 +747,12 @@ io.on('connection', (socket) => {
   socket.on('room:assign-team', ({ participantId, team }, reply) => {
     const room = roomFor(socket.id)
     if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can assign teams.' })
-    if (room.phase !== 'lobby') return reply({ ok: false, error: 'Teams are locked after the game starts.' })
     if (!isTeamId(team)) return reply({ ok: false, error: 'Choose one of the two teams.' })
     const participant = room.participants.get(participantId)
     if (!participant) return reply({ ok: false, error: 'Choose a connected player.' })
+    if (room.phase === 'playing' && (room.config.kind !== 'feud' || participant.status !== 'waiting')) {
+      return reply({ ok: false, error: 'Teams are locked after the game starts for active players.' })
+    }
 
     clearParticipantTyping(room, participant.id)
     participant.team = team
@@ -875,7 +903,7 @@ io.on('connection', (socket) => {
     if (
       activePlayer?.team !== team ||
       !activePlayerId ||
-      !connectedParticipantIds(room).has(activePlayerId)
+      !activeConnectedParticipantIds(room).has(activePlayerId)
     ) {
       return reply({ ok: false, error: `Choose a connected face-off representative for ${team === 'one' ? room.config.teamOne : room.config.teamTwo} before opening its poll.` })
     }
@@ -898,7 +926,7 @@ io.on('connection', (socket) => {
     const room = roomFor(socket.id)
     const connection = room?.connections.get(socket.id)
     const participant = connection?.participantId ? room?.participants.get(connection.participantId) : undefined
-    if (!room || !participant?.team || connection?.role !== 'player') {
+    if (!room || !participant?.team || participant.status !== 'active' || connection?.role !== 'player') {
       return reply({ ok: false, error: 'Join a team before voting.' })
     }
     if (!isPlayPassChoice(choice)) return reply({ ok: false, error: 'Vote Play or Pass.' })
@@ -916,7 +944,7 @@ io.on('connection', (socket) => {
     const room = roomFor(socket.id)
     const connection = room?.connections.get(socket.id)
     const participant = connection?.participantId ? room?.participants.get(connection.participantId) : undefined
-    if (!room || !participant || connection?.role !== 'player') {
+    if (!room || !participant || participant.status !== 'active' || connection?.role !== 'player') {
       return reply({ ok: false, error: 'Join a team before making the final choice.' })
     }
     if (!isPlayPassChoice(choice)) return reply({ ok: false, error: 'Choose Play or Pass.' })
@@ -948,6 +976,26 @@ io.on('connection', (socket) => {
     syncRoom(room)
   })
 
+  socket.on('feud:prepare-next-question', (reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) {
+      return reply({ ok: false, error: 'Only the host can prepare the next question.' })
+    }
+    if (room.phase !== 'playing' || room.config.kind !== 'feud' || room.game?.kind === 'fast-money') {
+      return reply({ ok: false, error: 'Start a regular Family Feud game before preparing the next question.' })
+    }
+
+    endFeudQuestion(room)
+    room.buzzer = { ...room.buzzer, status: 'idle', winner: null }
+    for (const participant of room.participants.values()) {
+      if (participant.status === 'waiting' && participant.team) participant.status = 'active'
+    }
+    repairRoomFeudTurns(room)
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
   socket.on('feud:advance-turn', (reply) => {
     const room = roomFor(socket.id)
     if (!room || room.hostSocketId !== socket.id) {
@@ -962,7 +1010,7 @@ io.on('connection', (socket) => {
     if (!activeTeam || !room.feudTurns.teams[activeTeam].currentPlayerId) {
       return reply({ ok: false, error: 'Finish Play or Pass before advancing the answering order.' })
     }
-    room.feudTurns = advanceFeudTurn(room.feudTurns, connectedParticipantIds(room))
+    room.feudTurns = advanceFeudTurn(room.feudTurns, activeConnectedParticipantIds(room))
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
     syncRoom(room)
@@ -982,7 +1030,8 @@ io.on('connection', (socket) => {
     const participant = room.participants.get(participantId)
     if (
       participant?.team !== team ||
-      !connectedParticipantIds(room).has(participant.id) ||
+      participant.status !== 'active' ||
+      !activeConnectedParticipantIds(room).has(participant.id) ||
       !room.feudTurns.teams[team].order.includes(participant.id)
     ) {
       return reply({ ok: false, error: 'Choose a connected player from that team.' })
@@ -1014,9 +1063,9 @@ io.on('connection', (socket) => {
       },
     }
     room.feudTurns = createFeudTurnState(
-      [...room.participants.values()],
+      activeParticipants(room),
       room.buzzer.representatives,
-      connectedParticipantIds(room),
+      activeConnectedParticipantIds(room),
     )
     if (room.config.kind === 'spin-solve') {
       room.game = createSpinSolveGame(room.config, { random: Math.random, now: Date.now })
@@ -1080,7 +1129,7 @@ io.on('connection', (socket) => {
     const actor: FastMoneyActor = {
       role: connection.role,
       participantId: participant?.id ?? null,
-      team: participant?.team ?? null,
+      team: participant?.status === 'active' ? participant.team : null,
     }
 
     if (command.type === 'start') {
@@ -1112,7 +1161,7 @@ io.on('connection', (socket) => {
       const result = applyFastMoneyCommand(
         room.game,
         pack,
-        [...room.participants.values()],
+        activeParticipants(room),
         actor,
         command,
         Date.now(),
@@ -1142,7 +1191,7 @@ io.on('connection', (socket) => {
 
     const representativesReady = (['one', 'two'] as TeamId[]).every((team) => {
       const participant = room.participants.get(room.buzzer.representatives[team] ?? '')
-      return participant?.team === team
+      return participant?.team === team && participant.status === 'active'
     })
     if (!representativesReady) return reply({ ok: false, error: 'Choose one representative from each team before arming the buzzer.' })
 
@@ -1181,7 +1230,9 @@ io.on('connection', (socket) => {
     if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can choose representatives.' })
     if (room.buzzer.status === 'armed') return reply({ ok: false, error: 'Close the buzzer before changing representatives.' })
     const participant = room.participants.get(participantId)
-    if (participant?.team !== team) return reply({ ok: false, error: 'Choose a connected player from that team.' })
+    if (participant?.team !== team || participant.status !== 'active') {
+      return reply({ ok: false, error: 'Choose an active player from that team.' })
+    }
 
     room.buzzer = {
       status: 'idle',
@@ -1218,7 +1269,7 @@ io.on('connection', (socket) => {
     const connection = room?.connections.get(socket.id)
     const participant = connection?.participantId ? room?.participants.get(connection.participantId) : undefined
 
-    if (!room || !participant?.team || connection?.role !== 'player') {
+    if (!room || !participant?.team || participant.status !== 'active' || connection?.role !== 'player') {
       return reply({ ok: false, error: 'Join a team before using the buzzer.' })
     }
     if (room.phase !== 'playing') return reply({ ok: false, error: 'The game has not started yet.' })
