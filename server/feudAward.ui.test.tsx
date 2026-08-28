@@ -210,6 +210,71 @@ afterEach(async () => {
 });
 
 describe("Family Feud round awards", () => {
+  it("navigates within the pack, preserves board progress, and keeps scores unchanged", async () => {
+    await renderGame();
+
+    expect(pageText()).toContain("Question 1 of 8");
+    expect(button("Previous question").disabled).toBe(true);
+    expect(button("Next question").disabled).toBe(false);
+
+    await click("Reveal answer 1: Clean the house, 34 points");
+    await click("Add strike X");
+    await click("Next question");
+
+    expect(pageText()).toContain("Question 2 of 8");
+    expect(pageText()).toContain("Name something that always seems to disappear at a party.");
+    expect(document.querySelector('[aria-label="The Leftovers: 0 points"]')).not.toBeNull();
+    expect(roomClientMock.endFeudQuestion).toHaveBeenCalledOnce();
+    expect(roomClientMock.resetBuzzer).toHaveBeenCalledOnce();
+    expect(roomClientMock.endFeudQuestion.mock.invocationCallOrder[0])
+      .toBeLessThan(roomClientMock.resetBuzzer.mock.invocationCallOrder[0]);
+
+    const questionTwo = latestConfig?.pack.questions[1];
+    const latestPresenterState = presenterStates
+      .map((message) => (message as {
+        state?: { mode?: string; question?: { answers?: { id: string }[] } };
+      }).state)
+      .filter((state) => state?.mode === "feud")
+      .at(-1);
+    expect(latestPresenterState?.question?.answers?.[0].id)
+      .toBe(questionTwo?.answers[0].id);
+
+    await click("Previous question");
+    expect(pageText()).toContain("Question 1 of 8");
+    expect(button("Clean the house, 34 points")).toBeTruthy();
+    expect(document.querySelector('[aria-label="1 strikes"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="The Leftovers: 0 points"]')).not.toBeNull();
+
+    for (let index = 0; index < 7; index += 1) await click("Next question");
+    expect(pageText()).toContain("Question 8 of 8");
+    expect(button("Next question").disabled).toBe(true);
+  });
+
+  it("keeps completed questions reviewable without allowing a duplicate award", async () => {
+    await renderGame();
+
+    await click("Reveal answer 1: Clean the house, 34 points");
+    await click("The Leftovers A");
+    await click("Next question ↗");
+    await click("Previous question");
+
+    expect(pageText()).toContain("Reviewing completed round 1. Scoring controls are locked.");
+    expect(pageText()).toContain("34 points awarded to The Leftovers");
+    expect(button("Reveal answer 2: Hide the clutter, 21 points").disabled).toBe(true);
+    expect(button("Add strike X").disabled).toBe(true);
+
+    await act(async () => {
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
+      window.dispatchEvent(new KeyboardEvent("keydown", { key: "b" }));
+    });
+    expect(document.querySelector('[aria-label="The Leftovers: 34 points"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="The Plus Ones: 0 points"]')).not.toBeNull();
+
+    await click("Next question");
+    expect(pageText()).toContain("Question 2 of 8");
+    expect(document.querySelector('[aria-label="The Leftovers: 34 points"]')).not.toBeNull();
+  });
+
   it("sets an exact team score without changing the round and ignores shortcuts while editing", async () => {
     await renderGame();
 
