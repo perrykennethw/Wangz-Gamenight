@@ -1,4 +1,11 @@
-import { useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import type { CSSProperties, DragEvent, FormEvent } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -1378,6 +1385,7 @@ interface TeamChatProps {
   messages: ChatMessage[];
   participantId: string;
   onSend: (text: string) => Promise<void>;
+  active?: boolean;
   locked?: boolean;
   lockReason?: string | null;
   moderator?: boolean;
@@ -1391,12 +1399,13 @@ function typingSummary(members: ChatTypingUpdate[]): string {
   return `${members[0].senderName} and ${members.length - 1} others are typing`;
 }
 
-function TeamChat({
+export function TeamChat({
   team,
   teamLabel,
   messages,
   participantId,
   onSend,
+  active = true,
   locked = false,
   lockReason,
   moderator = false,
@@ -1409,7 +1418,43 @@ function TeamChat({
   const typingStopTimer = useRef<number | null>(null);
   const typingAnnounced = useRef(false);
   const lastTypingSignalAt = useRef(0);
+  const feedRef = useRef<HTMLDivElement>(null);
+  const shouldFollowMessages = useRef(true);
+  const wasActive = useRef(false);
+  const previousTeam = useRef(team);
   const inputId = `team-message-${team}-${participantId}`;
+  const newestMessage = messages[messages.length - 1];
+
+  const updateFollowPreference = () => {
+    const feed = feedRef.current;
+    if (!feed) return;
+    const distanceFromBottom =
+      feed.scrollHeight - feed.scrollTop - feed.clientHeight;
+    shouldFollowMessages.current = distanceFromBottom <= 48;
+  };
+
+  useLayoutEffect(() => {
+    const feed = feedRef.current;
+    const justOpened = active && !wasActive.current;
+    const teamChanged = previousTeam.current !== team;
+    const sentByMe = newestMessage?.senderId === participantId;
+
+    wasActive.current = active;
+    previousTeam.current = team;
+    if (!feed || !active) return;
+
+    if (justOpened || teamChanged || shouldFollowMessages.current || sentByMe) {
+      feed.scrollTop = feed.scrollHeight;
+      shouldFollowMessages.current = true;
+    }
+  }, [
+    active,
+    messages.length,
+    newestMessage?.id,
+    newestMessage?.senderId,
+    participantId,
+    team,
+  ]);
 
   const stopTyping = () => {
     if (typingStopTimer.current !== null) {
@@ -1508,7 +1553,12 @@ function TeamChat({
         </div>
         <span className="lock-label">◆ Team + host</span>
       </header>
-      <div className="chat-feed" aria-live="polite">
+      <div
+        ref={feedRef}
+        className="chat-feed"
+        aria-live="polite"
+        onScroll={updateFollowPreference}
+      >
         {messages.length === 0 ? (
           <div className="chat-empty">
             <strong>Huddle up.</strong>
@@ -2444,6 +2494,7 @@ function PlayerChatDrawer({
           messages={room.messages}
           participantId={participantId}
           onSend={onSendMessage}
+          active={open}
         />
       </div>
     </section>
