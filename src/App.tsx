@@ -121,7 +121,7 @@ interface ScoreCardProps {
   team: string;
   score: number;
   accent: ScoreAccent;
-  onAdjust?: (change: number) => void;
+  onChangeScore?: (score: number) => void;
 }
 
 interface AnswerTileProps {
@@ -2729,7 +2729,34 @@ function PlayerRoom({
   );
 }
 
-function ScoreCard({ team, score, accent, onAdjust }: ScoreCardProps) {
+function ScoreCard({ team, score, accent, onChangeScore }: ScoreCardProps) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draftScore, setDraftScore] = useState("");
+  const [scoreError, setScoreError] = useState("");
+
+  const startEditing = () => {
+    setDraftScore(String(score));
+    setScoreError("");
+    setIsEditing(true);
+  };
+
+  const cancelEditing = () => {
+    setIsEditing(false);
+    setScoreError("");
+  };
+
+  const submitScore = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const nextScore = Number(draftScore);
+    if (!/^\d+$/.test(draftScore) || !Number.isSafeInteger(nextScore) || nextScore > 9999) {
+      setScoreError("Enter a whole number from 0 to 9999.");
+      return;
+    }
+    onChangeScore?.(nextScore);
+    setIsEditing(false);
+    setScoreError("");
+  };
+
   return (
     <section
       className={`score-card score-card--${accent}`}
@@ -2742,22 +2769,51 @@ function ScoreCard({ team, score, accent, onAdjust }: ScoreCardProps) {
         <h2>{team}</h2>
       </div>
       <div className="score-card__points">
-        <strong>{score}</strong>
-        {onAdjust && (
-          <div className="score-adjust" aria-label={`Adjust ${team} score`}>
-            <button
-              onClick={() => onAdjust(-5)}
-              aria-label={`Subtract 5 points from ${team}`}
-            >
-              −
-            </button>
-            <button
-              onClick={() => onAdjust(5)}
-              aria-label={`Add 5 points to ${team}`}
-            >
-              +
-            </button>
-          </div>
+        {isEditing ? (
+          <form className="score-editor" onSubmit={submitScore} noValidate>
+            <label>
+              <span className="sr-only">Set {team} score</span>
+              <input
+                autoFocus
+                type="number"
+                min="0"
+                max="9999"
+                step="1"
+                inputMode="numeric"
+                value={draftScore}
+                onChange={(event) => setDraftScore(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape") cancelEditing();
+                }}
+                aria-label={`Set ${team} score`}
+                aria-invalid={scoreError ? true : undefined}
+                aria-describedby={scoreError ? `${accent}-score-error` : undefined}
+              />
+            </label>
+            <div className="score-editor__actions">
+              <button type="submit">Save</button>
+              <button type="button" onClick={cancelEditing}>Cancel</button>
+            </div>
+            {scoreError && (
+              <small id={`${accent}-score-error`} className="score-editor__error" role="alert">
+                {scoreError}
+              </small>
+            )}
+          </form>
+        ) : (
+          <>
+            <strong>{score}</strong>
+            {onChangeScore && (
+              <button
+                type="button"
+                className="score-edit-trigger"
+                onClick={startEditing}
+                aria-label={`Edit ${team} score`}
+              >
+                Edit
+              </button>
+            )}
+          </>
         )}
       </div>
     </section>
@@ -3659,10 +3715,10 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
     roundAwarded.current = false;
   };
 
-  const adjustScore = (teamIndex: TeamIndex, change: number) => {
+  const changeScore = (teamIndex: TeamIndex, score: number) => {
     setScores((current) => {
       const nextScores: [number, number] = [current[0], current[1]];
-      nextScores[teamIndex] = Math.max(0, nextScores[teamIndex] + change);
+      nextScores[teamIndex] = score;
       return nextScores;
     });
   };
@@ -3679,6 +3735,13 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if (room.game?.kind === "fast-money") return;
+      const target = event.target;
+      if (
+        target instanceof HTMLInputElement
+        || target instanceof HTMLTextAreaElement
+        || target instanceof HTMLSelectElement
+        || (target instanceof HTMLElement && target.isContentEditable)
+      ) return;
       if (event.key >= "1" && event.key <= String(question.answers.length))
         revealAnswer(Number(event.key) - 1);
       if (event.key.toLowerCase() === "x") addStrike();
@@ -3742,7 +3805,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
           team={config.teamOne}
           score={scores[0]}
           accent="gold"
-          onAdjust={(change) => adjustScore(0, change)}
+          onChangeScore={(score) => changeScore(0, score)}
         />
         <div
           className="round-pot"
@@ -3755,7 +3818,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
           team={config.teamTwo}
           score={scores[1]}
           accent="coral"
-          onAdjust={(change) => adjustScore(1, change)}
+          onChangeScore={(score) => changeScore(1, score)}
         />
       </section>
 

@@ -123,6 +123,27 @@ async function click(name: string): Promise<void> {
   });
 }
 
+function input(name: string): HTMLInputElement {
+  const match = document.querySelector<HTMLInputElement>(`input[aria-label="${name}"]`);
+  if (!match) throw new Error(`Could not find input: ${name}`);
+  return match;
+}
+
+async function fillInput(name: string, value: string): Promise<void> {
+  await act(async () => {
+    const field = input(name);
+    const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+    setter?.call(field, value);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+}
+
+async function submitClosestForm(name: string): Promise<void> {
+  await act(async () => {
+    input(name).form?.requestSubmit();
+  });
+}
+
 async function renderGame(winningScore = 300): Promise<void> {
   root = createRoot(document.querySelector("#root")!);
   await act(async () => {
@@ -189,6 +210,50 @@ afterEach(async () => {
 });
 
 describe("Family Feud round awards", () => {
+  it("sets an exact team score without changing the round and ignores shortcuts while editing", async () => {
+    await renderGame();
+
+    await click("Edit The Leftovers score");
+    const scoreInput = input("Set The Leftovers score");
+    expect(scoreInput.value).toBe("0");
+    expect(document.activeElement).toBe(scoreInput);
+
+    await fillInput("Set The Leftovers score", "137");
+    await act(async () => {
+      scoreInput.dispatchEvent(new KeyboardEvent("keydown", { key: "1", bubbles: true }));
+      scoreInput.dispatchEvent(new KeyboardEvent("keydown", { key: "x", bubbles: true }));
+    });
+    expect(pageText()).toContain("Award 0 points");
+    expect(document.querySelector('[aria-label="0 strikes"]')).not.toBeNull();
+
+    await submitClosestForm("Set The Leftovers score");
+    expect(document.querySelector('[aria-label="The Leftovers: 137 points"]')).not.toBeNull();
+    expect(pageText()).toContain("Round 1");
+    expect(pageText()).toContain("Award 0 points");
+
+    const lastFeudMessage = presenterStates
+      .map((message) => (message as { state?: { mode?: string; scores?: number[] } }).state)
+      .filter((state) => state?.mode === "feud")
+      .at(-1);
+    expect(lastFeudMessage?.scores).toEqual([137, 0]);
+  });
+
+  it("rejects invalid score edits and allows cancellation", async () => {
+    await renderGame();
+
+    await click("Edit The Plus Ones score");
+    await fillInput("Set The Plus Ones score", "10000");
+    await submitClosestForm("Set The Plus Ones score");
+
+    expect(pageText()).toContain("Enter a whole number from 0 to 9999.");
+    expect(document.querySelector('[aria-label="The Plus Ones: 0 points"]')).not.toBeNull();
+
+    await fillInput("Set The Plus Ones score", "42");
+    await click("Cancel");
+    expect(document.querySelector('[aria-label="The Plus Ones: 0 points"]')).not.toBeNull();
+    expect(document.querySelector('[aria-label="Set The Plus Ones score"]')).toBeNull();
+  });
+
   it("keeps the board open for remaining reveals and advances explicitly", async () => {
     await renderGame();
 
