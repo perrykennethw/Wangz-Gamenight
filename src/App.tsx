@@ -46,7 +46,7 @@ import {
   type LobbyPresentation,
   type SpinPresentation,
 } from "./presenterChannel";
-import { roomClient } from "./roomClient";
+import { roomClient, type RoomConnectionStatus } from "./roomClient";
 import {
   browserRoomInviteUrl,
   isLocalRoomInviteUrl,
@@ -88,6 +88,7 @@ type Screen =
   | "setup"
   | "builder"
   | "join"
+  | "recovery"
   | "host-lobby"
   | "player-room"
   | "game";
@@ -755,6 +756,41 @@ function Home({ onChooseFeud, onChooseSpinSolve, onJoin }: HomeProps) {
         </div>
       </section>
     </main>
+  );
+}
+
+function RecoveryScreen({ onCancel }: { onCancel: () => void }) {
+  return (
+    <main className="recovery-shell">
+      <Brand />
+      <section className="recovery-card" role="status" aria-live="polite">
+        <span className="recovery-card__pulse" aria-hidden="true" />
+        <p className="eyebrow">Connection recovery</p>
+        <h1>
+          Rejoining
+          <br />
+          <em>your room.</em>
+        </h1>
+        <p>Keep this page open. Your role, team, and live game state are being restored.</p>
+        <button className="secondary-button" type="button" onClick={onCancel}>
+          Start over
+        </button>
+      </section>
+    </main>
+  );
+}
+
+function ConnectionStatusBanner({ status }: { status: RoomConnectionStatus }) {
+  if (status.state === "online") return null;
+  return (
+    <div
+      className={`connection-status connection-status--${status.state}`}
+      role={status.state === "recovery-expired" ? "alert" : "status"}
+      aria-live="polite"
+    >
+      <span aria-hidden="true" />
+      {status.message}
+    </div>
   );
 }
 
@@ -2834,6 +2870,12 @@ function PlayerRoom({
         </button>
       </header>
       <section className="player-room">
+        {room.hostConnection.status === "reconnecting" && (
+          <div className="host-reconnecting-banner" role="status" aria-live="polite">
+            <strong>Moderator reconnecting</strong>
+            <span>Your room is still open. Game controls will resume when the moderator is back online.</span>
+          </div>
+        )}
         {room.phase === "playing" && (
           <div className="game-live-banner">
             <span className="live-dot" />
@@ -4742,7 +4784,11 @@ export default function App() {
     [],
   );
   const [screen, setScreen] = useState<Screen>(() =>
-    initialJoinCode ? "join" : "home",
+    initialJoinCode
+      ? "join"
+      : roomClient.hasRecoveryIntent()
+        ? "recovery"
+        : "home",
   );
   const [config, setConfig] = useState<GameConfig | null>(null);
   const [selectedGame, setSelectedGame] = useState<GameConfig["kind"]>("feud");
@@ -4751,6 +4797,10 @@ export default function App() {
   const [roomNotice, dispatchRoomNotice] = useReducer(roomNoticeReducer, "");
   const [preparingExistingRoom, setPreparingExistingRoom] = useState(false);
   const [moderatorShortcutsEnabled, setModeratorShortcutsEnabled] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<RoomConnectionStatus>({
+    state: "online",
+    message: "",
+  });
 
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "auto" });
@@ -4765,8 +4815,31 @@ export default function App() {
         dispatchRoomNotice({ type: "received", message });
         setScreen("home");
       },
+      setConnectionStatus,
+      (snapshot) => {
+        setRoom(snapshot);
+        if (snapshot.viewer.role === "host") {
+          const recoveredConfig = snapshot.config as GameConfig;
+          setConfig(recoveredConfig);
+          setSelectedGame(recoveredConfig.kind);
+          if (recoveredConfig.kind === "feud") setFeudPack(recoveredConfig.pack);
+        }
+        setScreen((current) => {
+          if (current !== "recovery" && current !== "home") return current;
+          if (snapshot.viewer.role === "player") return "player-room";
+          return snapshot.phase === "playing" ? "game" : "host-lobby";
+        });
+      },
     );
   }, [presentationCode]);
+
+  useEffect(() => {
+    if (connectionStatus.state !== "back-online") return;
+    const timer = window.setTimeout(() => {
+      setConnectionStatus({ state: "online", message: "" });
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [connectionStatus.state]);
 
   const createRoom = async (nextConfig: GameConfig) => {
     const snapshot = await roomClient.createRoom(nextConfig);
@@ -4853,6 +4926,8 @@ export default function App() {
 
   return (
     <>
+      {screen !== "recovery" && <ConnectionStatusBanner status={connectionStatus} />}
+      {screen === "recovery" && <RecoveryScreen onCancel={leaveRoom} />}
       {screen === "home" && (
         <>
           {roomNotice && (

@@ -9,6 +9,7 @@ import type {
   JoinRoomDetails,
   PlayPassChoice,
   RoomResult,
+  RoomRecoveryRequest,
   RoomSnapshot,
   ServerToClientEvents,
   SharedTimerPreset,
@@ -16,10 +17,23 @@ import type {
   TeamId,
 } from "./roomTypes";
 import { getPlayerSessionId } from "./playerSessionIdentity";
+import {
+  roomRecoveryStore,
+  type RoomRecoveryStore,
+} from "./roomRecovery";
 
 type SnapshotListener = (snapshot: RoomSnapshot) => void;
 type ClosedListener = (message: string) => void;
 type TypingListener = (update: ChatTypingUpdate) => void;
+type RecoveredListener = (snapshot: RoomSnapshot) => void;
+
+export type RoomConnectionStatus =
+  | { state: "online"; message: "" }
+  | { state: "reconnecting"; message: string }
+  | { state: "back-online"; message: string }
+  | { state: "recovery-expired"; message: string };
+
+type ConnectionStatusListener = (status: RoomConnectionStatus) => void;
 
 export type RoomClientSocket = Pick<
   Socket<ServerToClientEvents, ClientToServerEvents>,
@@ -28,18 +42,36 @@ export type RoomClientSocket = Pick<
 
 export class RoomClient {
   private readonly socket: RoomClientSocket;
-  private joinedRoom: JoinRoomDetails | null = null;
-  private canResume = false;
+  private readonly recoveryStore: RoomRecoveryStore;
+  private recoveryIntent: RoomRecoveryRequest | null;
+  private shouldRecover: boolean;
+  private recoveryInFlight = false;
+  private connectionStatus: RoomConnectionStatus;
   private onResumeFailed: ClosedListener | null = null;
+  private onRecovered: RecoveredListener | null = null;
+  private onConnectionStatus: ConnectionStatusListener | null = null;
 
-  constructor(socket: RoomClientSocket = io({ autoConnect: false })) {
+  constructor(
+    socket: RoomClientSocket = io({ autoConnect: false }),
+    recoveryStore: RoomRecoveryStore = roomRecoveryStore,
+  ) {
     this.socket = socket;
+    this.recoveryStore = recoveryStore;
+    this.recoveryIntent = recoveryStore.read();
+    this.shouldRecover = this.recoveryIntent !== null;
+    this.connectionStatus = this.recoveryIntent
+      ? { state: "reconnecting", message: "Rejoining your room…" }
+      : { state: "online", message: "" };
+
     this.socket.on("connect", () => {
-      if (!this.canResume || !this.joinedRoom) return;
-      this.socket.emit("room:join", this.joinedRoom, (result) => {
-        if (result.ok) return;
-        this.clearResumeIntent();
-        this.onResumeFailed?.(`Could not reconnect: ${result.error}`);
+      this.attemptRecovery();
+    });
+    this.socket.on("disconnect", () => {
+      if (!this.recoveryIntent) return;
+      this.shouldRecover = true;
+      this.updateConnectionStatus({
+        state: "reconnecting",
+        message: "Connection lost. Rejoining your room…",
       });
     });
   }
@@ -47,30 +79,50 @@ export class RoomClient {
   subscribe(
     onSnapshot: SnapshotListener,
     onClosed: ClosedListener,
+    onConnectionStatus?: ConnectionStatusListener,
+    onRecovered?: RecoveredListener,
   ): () => void {
-    this.connect();
     this.onResumeFailed = onClosed;
+    this.onRecovered = onRecovered ?? null;
+    this.onConnectionStatus = onConnectionStatus ?? null;
+    onConnectionStatus?.(this.connectionStatus);
     const handleClosed = (message: string) => {
       this.clearResumeIntent();
       onClosed(message);
     };
     this.socket.on("room:snapshot", onSnapshot);
     this.socket.on("room:closed", handleClosed);
+    this.connect();
 
     return () => {
       this.socket.off("room:snapshot", onSnapshot);
       this.socket.off("room:closed", handleClosed);
       if (this.onResumeFailed === onClosed) this.onResumeFailed = null;
+      if (this.onRecovered === onRecovered) this.onRecovered = null;
+      if (this.onConnectionStatus === onConnectionStatus) this.onConnectionStatus = null;
     };
+  }
+
+  hasRecoveryIntent(): boolean {
+    return this.recoveryIntent !== null;
   }
 
   createRoom(config: GameConfig): Promise<RoomSnapshot> {
     this.clearResumeIntent();
     this.connect();
     return new Promise((resolve, reject) => {
-      this.socket.emit("room:create", config, (result) =>
-        this.finish(result, resolve, reject),
-      );
+      this.socket.emit("room:create", config, (result) => {
+        if (!result.ok) {
+          reject(new Error(result.error));
+          return;
+        }
+        this.setRecoveryIntent({
+          role: "host",
+          code: result.data.room.code,
+          credential: result.data.recoveryCredential,
+        });
+        resolve(result.data.room);
+      });
     });
   }
 
@@ -81,12 +133,17 @@ export class RoomClient {
       avatarId,
       sessionId: getPlayerSessionId(),
     };
-    this.joinedRoom = details;
-    this.canResume = false;
+    this.clearResumeIntent();
     this.connect();
     return new Promise((resolve, reject) => {
       this.socket.emit("room:join", details, (result) => {
-        if (result.ok) this.canResume = true;
+        if (result.ok) {
+          this.setRecoveryIntent({
+            role: "player",
+            code: result.data.code,
+            sessionId: details.sessionId,
+          });
+        }
         this.finish(result, resolve, reject);
       });
     });
@@ -95,10 +152,6 @@ export class RoomClient {
   updateIdentity(name: string, avatarId: string | null): Promise<RoomSnapshot> {
     return new Promise((resolve, reject) => {
       this.socket.emit("participant:update-identity", { name, avatarId }, (result) => {
-        if (result.ok && this.joinedRoom) {
-          this.joinedRoom.name = name;
-          this.joinedRoom.avatarId = avatarId;
-        }
         this.finish(result, resolve, reject);
       });
     });
@@ -325,12 +378,57 @@ export class RoomClient {
   }
 
   private clearResumeIntent(): void {
-    this.canResume = false;
-    this.joinedRoom = null;
+    this.recoveryIntent = null;
+    this.shouldRecover = false;
+    this.recoveryInFlight = false;
+    this.recoveryStore.clear();
+    this.updateConnectionStatus({ state: "online", message: "" });
   }
 
   private connect(): void {
     if (!this.socket.connected) this.socket.connect();
+    else this.attemptRecovery();
+  }
+
+  private setRecoveryIntent(intent: RoomRecoveryRequest): void {
+    this.recoveryIntent = intent;
+    this.shouldRecover = false;
+    this.recoveryStore.write(intent);
+    this.updateConnectionStatus({ state: "online", message: "" });
+  }
+
+  private attemptRecovery(): void {
+    if (!this.recoveryIntent || !this.shouldRecover || this.recoveryInFlight) return;
+    this.recoveryInFlight = true;
+    const intent = this.recoveryIntent;
+    this.updateConnectionStatus({
+      state: "reconnecting",
+      message: "Rejoining your room…",
+    });
+    this.socket.emit("room:recover", intent, (result) => {
+      this.recoveryInFlight = false;
+      if (result.ok) {
+        this.shouldRecover = false;
+        this.updateConnectionStatus({
+          state: "back-online",
+          message: "Back online.",
+        });
+        this.onRecovered?.(result.data);
+        return;
+      }
+
+      this.recoveryIntent = null;
+      this.shouldRecover = false;
+      this.recoveryStore.clear();
+      const message = `Recovery expired. ${result.error}`;
+      this.updateConnectionStatus({ state: "recovery-expired", message });
+      this.onResumeFailed?.(message);
+    });
+  }
+
+  private updateConnectionStatus(status: RoomConnectionStatus): void {
+    this.connectionStatus = status;
+    this.onConnectionStatus?.(status);
   }
 
   private finish<T>(

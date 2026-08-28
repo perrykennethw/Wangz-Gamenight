@@ -7,6 +7,7 @@ import type {
   ClientToServerEvents,
   FastMoneyCommand,
   GameConfig,
+  HostRoomCreation,
   RoomResult,
   RoomSnapshot,
   ServerToClientEvents,
@@ -38,7 +39,7 @@ function result<T>(emit: (reply: (value: RoomResult<T>) => void) => void): Promi
   )))
 }
 
-const createRoom = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('room:create', config, reply))
+const createRoom = (socket: TestSocket) => result<HostRoomCreation>((reply) => socket.emit('room:create', config, reply)).then((creation) => creation.room)
 const joinRoom = (socket: TestSocket, code: string, name: string, sessionId: string) => result<RoomSnapshot>((reply) => (
   socket.emit('room:join', { code, name, avatarId: null, sessionId }, reply)
 ))

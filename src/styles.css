@@ -445,6 +445,25 @@ kbd { display: inline-grid; place-items: center; min-width: 18px; min-height: 18
 .form-error { margin: 12px 0; color: #bd2f27; font-size: 12px; font-weight: 800; line-height: 1.35; }
 .room-notice { position: fixed; z-index: 20; top: 20px; left: 50%; display: flex; align-items: center; gap: 18px; padding: 14px 17px; color: var(--paper); background: var(--coral); border: 2px solid var(--ink); box-shadow: 5px 5px 0 var(--ink); font-size: 12px; font-weight: 800; transform: translateX(-50%); }
 .room-notice button { padding: 0; color: inherit; background: transparent; border: 0; font-size: 20px; line-height: 1; }
+.connection-status { position: fixed; z-index: 30; top: 16px; left: 50%; display: flex; align-items: center; gap: 10px; width: max-content; max-width: calc(100vw - 32px); padding: 12px 16px; color: var(--paper); background: var(--ink); border: 2px solid var(--gold); box-shadow: 5px 5px 0 rgba(0,0,0,.32); font-size: 11px; font-weight: 900; letter-spacing: .03em; transform: translateX(-50%); }
+.connection-status > span { width: 9px; height: 9px; flex: 0 0 auto; background: var(--gold); border-radius: 50%; }
+.connection-status--reconnecting > span { animation: connection-pulse 1s ease-in-out infinite; }
+.connection-status--back-online { color: var(--ink); background: var(--gold); border-color: var(--ink); }
+.connection-status--back-online > span { background: #18834b; }
+.connection-status--recovery-expired { background: var(--coral); border-color: var(--ink); }
+.recovery-shell { display: grid; grid-template-rows: auto 1fr; min-height: 100vh; padding: 28px 38px 40px; color: var(--ink); background: var(--paper); }
+.recovery-shell > .brand { justify-self: start; }
+.recovery-card { position: relative; align-self: center; justify-self: center; width: min(620px, 100%); padding: clamp(34px, 6vw, 70px); overflow: hidden; color: var(--paper); background: var(--ink); border: 3px solid var(--ink); box-shadow: 12px 12px 0 var(--gold); }
+.recovery-card__pulse { position: absolute; top: 30px; right: 30px; width: 18px; height: 18px; background: var(--gold); border-radius: 50%; animation: connection-pulse 1s ease-in-out infinite; }
+.recovery-card h1 { margin: 0; font-family: var(--display); font-size: clamp(62px, 10vw, 96px); line-height: .82; text-transform: uppercase; }
+.recovery-card h1 em { color: var(--gold); font-style: normal; }
+.recovery-card > p:not(.eyebrow) { max-width: 430px; margin: 28px 0; color: #c2cce0; font-size: 16px; line-height: 1.55; }
+.recovery-card .secondary-button { width: auto; color: var(--paper); border-color: var(--paper); }
+.host-reconnecting-banner { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 13px 16px; color: var(--ink); background: var(--gold); border: 2px solid var(--ink); box-shadow: 4px 4px 0 var(--ink); }
+.host-reconnecting-banner strong { flex: 0 0 auto; font-size: 10px; letter-spacing: .1em; text-transform: uppercase; }
+.host-reconnecting-banner span { font-size: 11px; line-height: 1.4; }
+
+@keyframes connection-pulse { 50% { opacity: .35; transform: scale(.72); } }
 
 .join-shell { min-height: 100vh; color: var(--ink); background: var(--paper); }
 .join-stage { display: grid; grid-template-columns: 1fr 1fr; align-items: center; max-width: 1120px; min-height: calc(100vh - 90px); margin: 0 auto; }
@@ -1334,6 +1353,13 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
 
 @media (max-width: 760px) {
   .join-shell, .player-shell { overflow-x: clip; }
+  .connection-status { top: 10px; width: calc(100vw - 24px); justify-content: center; padding: 11px 12px; text-align: center; }
+  .recovery-shell { padding: 20px 18px 30px; }
+  .recovery-card { padding: 36px 24px; box-shadow: 7px 7px 0 var(--gold); }
+  .recovery-card__pulse { top: 20px; right: 20px; }
+  .recovery-card h1 { font-size: clamp(54px, 18vw, 76px); }
+  .recovery-card .secondary-button { min-height: 44px; }
+  .host-reconnecting-banner { align-items: flex-start; flex-direction: column; gap: 5px; }
   .home-nav__actions .edition { display: none; }
   .nav-join { padding: 9px 10px; }
   .join-stage { grid-template-columns: 1fr; min-height: auto; }
