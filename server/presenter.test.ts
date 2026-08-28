@@ -86,6 +86,7 @@ const feud = createFeudPresentation({
   question: config.pack.questions[0],
   revealed: [0],
   strikes: 1,
+  wrongAnswerCueRevision: 4,
   scores: [34, 20],
   roundPot: 34,
   winner: null,
@@ -112,6 +113,7 @@ assert.deepEqual(feud.turn, {
 })
 assert.deepEqual(feud.buzzer.winner, { playerName: 'Avery', avatarId: 'contestants/rocket.webp', team: 'one' })
 assert.deepEqual(feud.revealed, [0])
+assert.equal(feud.wrongAnswerCueRevision, 4)
 assert.deepEqual(feud.timer, room.timer)
 assert.equal(feud.question.answers[0].label, config.pack.questions[0].answers[0].label)
 assert.equal(feud.question.answers[1].label, '')

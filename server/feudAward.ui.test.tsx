@@ -212,6 +212,30 @@ afterEach(async () => {
 });
 
 describe("Family Feud round awards", () => {
+  it("publishes a new wrong-answer cue only when the moderator adds a strike", async () => {
+    await renderGame();
+
+    const latestCueRevision = () => presenterStates
+      .map((message) => (message as {
+        state?: { mode?: string; wrongAnswerCueRevision?: number };
+      }).state)
+      .filter((state) => state?.mode === "feud")
+      .at(-1)?.wrongAnswerCueRevision;
+
+    expect(latestCueRevision()).toBe(0);
+    await click("Add strike X");
+    expect(latestCueRevision()).toBe(1);
+
+    await click("Remove a strike");
+    expect(latestCueRevision()).toBe(1);
+    await click("Next question");
+    await click("Previous question");
+    expect(latestCueRevision()).toBe(1);
+
+    await click("Add strike X");
+    expect(latestCueRevision()).toBe(2);
+  });
+
   it("navigates within the pack, preserves board progress, and keeps scores unchanged", async () => {
     await renderGame();
 
