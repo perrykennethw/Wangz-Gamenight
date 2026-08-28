@@ -1,5 +1,5 @@
 import { createServer } from 'node:http'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import { extname, resolve, sep } from 'node:path'
 import { Server, type Socket } from 'socket.io'
@@ -16,6 +16,7 @@ import {
   type PlayPassChoice,
   type PlayPassPollView,
   type RoomResult,
+  type RoomRecoveryRequest,
   type RoomSnapshot,
   type ServerToClientEvents,
   type SharedTimerState,
@@ -48,10 +49,16 @@ import {
   type FastMoneyActor,
   type FastMoneyState,
 } from './fastMoney.js'
+import { writeRoomConnectionDiagnostic } from './roomDiagnostics.js'
 
 interface Connection {
   role: 'host' | 'player'
   participantId?: string
+}
+
+interface ParticipantDisconnect {
+  disconnectedAt: number
+  timer: ReturnType<typeof setTimeout>
 }
 
 interface Room {
@@ -59,10 +66,13 @@ interface Room {
   phase: 'lobby' | 'playing'
   gameRevision: number
   config: GameConfig
-  hostSocketId: string
+  hostSocketId: string | null
+  hostRecoveryHash: Buffer
+  hostDisconnectedAt: number | null
+  hostDisconnectTimer: ReturnType<typeof setTimeout> | null
   participants: Map<string, Participant>
   participantSessions: Map<string, string>
-  disconnectTimers: Map<string, ReturnType<typeof setTimeout>>
+  disconnectTimers: Map<string, ParticipantDisconnect>
   connections: Map<string, Connection>
   messages: Record<TeamId, ChatMessage[]>
   typing: Map<string, ChatTypingUpdate>
@@ -88,7 +98,10 @@ interface Room {
 const rooms = new Map<string, Room>()
 const socketRooms = new Map<string, string>()
 const codeAlphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-const reconnectGraceMs = 30_000
+const configuredReconnectGraceMs = Number(process.env.ROOM_RECOVERY_GRACE_MS)
+const reconnectGraceMs = Number.isSafeInteger(configuredReconnectGraceMs) && configuredReconnectGraceMs >= 100
+  ? configuredReconnectGraceMs
+  : 120_000
 const staticDirectory = resolve(process.cwd(), 'dist')
 const contentTypes: Record<string, string> = {
   '.css': 'text/css; charset=utf-8',
@@ -185,6 +198,23 @@ function normalizeSessionId(value: unknown): string {
     throw new Error('Refresh this page before joining the room.')
   }
   return value
+}
+
+function normalizeRecoveryCredential(value: unknown): string {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{32,128}$/.test(value)) {
+    throw new Error('That recovery credential is not valid.')
+  }
+  return value
+}
+
+function hashRecoveryCredential(credential: string): Buffer {
+  return createHash('sha256').update(credential).digest()
+}
+
+function recoveryCredentialMatches(room: Room, credential: string): boolean {
+  const candidate = hashRecoveryCredential(credential)
+  return candidate.length === room.hostRecoveryHash.length
+    && timingSafeEqual(candidate, room.hostRecoveryHash)
 }
 
 function isPlayPassChoice(value: unknown): value is PlayPassChoice {
@@ -303,6 +333,12 @@ function snapshotFor(room: Room, socketId: string): RoomSnapshot {
     code: room.code,
     phase: room.phase,
     gameRevision: room.gameRevision,
+    hostConnection: {
+      status: room.hostSocketId ? 'connected' : 'reconnecting',
+      recoveryDeadline: room.hostDisconnectedAt === null
+        ? null
+        : room.hostDisconnectedAt + reconnectGraceMs,
+    },
     config,
     participants: [...room.participants.values()],
     messages: participant?.team ? room.messages[participant.team] : [],
@@ -528,8 +564,8 @@ function removeParticipant(room: Room, participantId: string): void {
   for (const [sessionId, savedParticipantId] of room.participantSessions) {
     if (savedParticipantId === participantId) room.participantSessions.delete(sessionId)
   }
-  const timer = room.disconnectTimers.get(participantId)
-  if (timer) clearTimeout(timer)
+  const disconnect = room.disconnectTimers.get(participantId)
+  if (disconnect) clearTimeout(disconnect.timer)
   room.disconnectTimers.delete(participantId)
   if (room.playPass.activePlayerId === participantId) endFeudQuestion(room)
   if (participant?.team && room.buzzer.representatives[participant.team] === participant.id) {
@@ -545,10 +581,26 @@ function removeParticipant(room: Room, participantId: string): void {
   repairRoomFeudTurns(room)
 }
 
+function closeRoom(room: Room, message: string): void {
+  cancelSharedTimerExpiration(room)
+  cancelFastMoneyExpiration(room)
+  if (room.hostDisconnectTimer) clearTimeout(room.hostDisconnectTimer)
+  room.hostDisconnectTimer = null
+  for (const disconnect of room.disconnectTimers.values()) clearTimeout(disconnect.timer)
+  room.disconnectTimers.clear()
+  for (const memberSocketId of room.connections.keys()) {
+    io.sockets.sockets.get(memberSocketId)?.emit('room:closed', message)
+    socketRooms.delete(memberSocketId)
+  }
+  room.connections.clear()
+  rooms.delete(room.code)
+}
+
 function leaveCurrentRoom(
   socket: Socket<ClientToServerEvents, ServerToClientEvents>,
   notifySocket = true,
-  preservePlayer = false,
+  preserveConnection = false,
+  disconnectReason = 'explicit leave',
 ): void {
   const room = roomFor(socket.id)
   if (!room) return
@@ -559,32 +611,71 @@ function leaveCurrentRoom(
   socketRooms.delete(socket.id)
 
   if (connection?.role === 'host') {
-    cancelSharedTimerExpiration(room)
-    cancelFastMoneyExpiration(room)
-    for (const timer of room.disconnectTimers.values()) clearTimeout(timer)
-    for (const memberSocketId of room.connections.keys()) {
-      io.sockets.sockets.get(memberSocketId)?.emit('room:closed', 'The host closed this room.')
-      socketRooms.delete(memberSocketId)
+    if (!preserveConnection) {
+      closeRoom(room, 'The host closed this room.')
+      return
     }
-    rooms.delete(room.code)
+
+    const disconnectedAt = Date.now()
+    room.hostSocketId = null
+    room.hostDisconnectedAt = disconnectedAt
+    if (room.hostDisconnectTimer) clearTimeout(room.hostDisconnectTimer)
+    room.hostDisconnectTimer = setTimeout(() => {
+      const liveRoom = rooms.get(room.code)
+      if (!liveRoom || liveRoom.hostSocketId || liveRoom.hostDisconnectedAt !== disconnectedAt) return
+      writeRoomConnectionDiagnostic({
+        event: 'recovery-expired',
+        role: 'host',
+        roomCode: liveRoom.code,
+        phase: liveRoom.phase,
+        recoveryDurationMs: Date.now() - disconnectedAt,
+      })
+      closeRoom(liveRoom, 'The host could not reconnect. This room expired.')
+    }, reconnectGraceMs)
+    writeRoomConnectionDiagnostic({
+      event: 'disconnected',
+      role: 'host',
+      roomCode: room.code,
+      phase: room.phase,
+      reason: disconnectReason,
+    })
+    syncRoom(room)
     return
   }
 
   if (connection?.participantId) {
-    if (preservePlayer) {
+    if (preserveConnection) {
       const participantId = connection.participantId
-      const previousTimer = room.disconnectTimers.get(participantId)
-      if (previousTimer) clearTimeout(previousTimer)
-      room.disconnectTimers.set(participantId, setTimeout(() => {
-        removeParticipant(room, participantId)
-        syncRoom(room)
-      }, reconnectGraceMs))
+      const previousDisconnect = room.disconnectTimers.get(participantId)
+      if (previousDisconnect) clearTimeout(previousDisconnect.timer)
+      const disconnectedAt = Date.now()
+      const timer = setTimeout(() => {
+        const liveRoom = rooms.get(room.code)
+        if (!liveRoom) return
+        writeRoomConnectionDiagnostic({
+          event: 'recovery-expired',
+          role: 'player',
+          roomCode: liveRoom.code,
+          phase: liveRoom.phase,
+          recoveryDurationMs: Date.now() - disconnectedAt,
+        })
+        removeParticipant(liveRoom, participantId)
+        syncRoom(liveRoom)
+      }, reconnectGraceMs)
+      room.disconnectTimers.set(participantId, { disconnectedAt, timer })
+      writeRoomConnectionDiagnostic({
+        event: 'disconnected',
+        role: 'player',
+        roomCode: room.code,
+        phase: room.phase,
+        reason: disconnectReason,
+      })
       repairRoomFeudTurns(room)
     } else {
       removeParticipant(room, connection.participantId)
     }
   }
-  if (notifySocket || (preservePlayer && connection?.participantId)) syncRoom(room)
+  if (notifySocket || (preserveConnection && connection?.participantId)) syncRoom(room)
 }
 
 io.on('connection', (socket) => {
@@ -599,12 +690,16 @@ io.on('connection', (socket) => {
 
     leaveCurrentRoom(socket)
     const code = makeCode()
+    const hostRecoveryCredential = randomBytes(32).toString('base64url')
     const room: Room = {
       code,
       phase: 'lobby',
       gameRevision: 0,
       config: normalizedConfig,
       hostSocketId: socket.id,
+      hostRecoveryHash: hashRecoveryCredential(hostRecoveryCredential),
+      hostDisconnectedAt: null,
+      hostDisconnectTimer: null,
       participants: new Map(),
       participantSessions: new Map(),
       disconnectTimers: new Map(),
@@ -625,7 +720,13 @@ io.on('connection', (socket) => {
     rooms.set(code, room)
     socketRooms.set(socket.id, code)
     const snapshot = snapshotFor(room, socket.id)
-    reply({ ok: true, data: snapshot })
+    reply({
+      ok: true,
+      data: {
+        room: snapshot,
+        recoveryCredential: hostRecoveryCredential,
+      },
+    })
     socket.emit('room:snapshot', snapshot)
   })
 
@@ -658,8 +759,8 @@ io.on('connection', (socket) => {
       if (alreadyConnected) return reply({ ok: false, error: 'That player is already connected.' })
 
       leaveCurrentRoom(socket)
-      const timer = room.disconnectTimers.get(savedParticipant.id)
-      if (timer) clearTimeout(timer)
+      const disconnect = room.disconnectTimers.get(savedParticipant.id)
+      if (disconnect) clearTimeout(disconnect.timer)
       room.disconnectTimers.delete(savedParticipant.id)
       savedParticipant.avatarId = cleanAvatarId
       room.connections.set(socket.id, { role: 'player', participantId: savedParticipant.id })
@@ -667,6 +768,13 @@ io.on('connection', (socket) => {
       repairRoomFeudTurns(room)
       const snapshot = snapshotFor(room, socket.id)
       reply({ ok: true, data: snapshot })
+      writeRoomConnectionDiagnostic({
+        event: 'recovered',
+        role: 'player',
+        roomCode: room.code,
+        phase: room.phase,
+        recoveryDurationMs: disconnect ? Date.now() - disconnect.disconnectedAt : 0,
+      })
       syncRoom(room)
       return
     }
@@ -693,6 +801,96 @@ io.on('connection', (socket) => {
     socketRooms.set(socket.id, room.code)
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
+  socket.on('room:recover', (details: RoomRecoveryRequest, reply) => {
+    const normalizedCode = typeof details?.code === 'string' ? details.code.trim().toUpperCase() : ''
+    const room = rooms.get(normalizedCode)
+    const fail = (message = 'That recovery expired or is no longer available.') => {
+      if (room && (details?.role === 'host' || details?.role === 'player')) {
+        writeRoomConnectionDiagnostic({
+          event: 'recovery-failed',
+          role: details.role,
+          roomCode: room.code,
+          phase: room.phase,
+        })
+      }
+      reply({ ok: false, error: message })
+    }
+
+    if (!room) return fail()
+
+    if (details.role === 'host') {
+      let credential: string
+      try {
+        credential = normalizeRecoveryCredential(details.credential)
+      } catch {
+        return fail()
+      }
+      if (!recoveryCredentialMatches(room, credential) || room.hostSocketId) return fail()
+
+      const disconnectedAt = room.hostDisconnectedAt
+      leaveCurrentRoom(socket)
+      if (room.hostDisconnectTimer) clearTimeout(room.hostDisconnectTimer)
+      room.hostDisconnectTimer = null
+      room.hostDisconnectedAt = null
+      room.hostSocketId = socket.id
+      room.connections.set(socket.id, { role: 'host' })
+      socketRooms.set(socket.id, room.code)
+      const snapshot = snapshotFor(room, socket.id)
+      reply({ ok: true, data: snapshot })
+      writeRoomConnectionDiagnostic({
+        event: 'recovered',
+        role: 'host',
+        roomCode: room.code,
+        phase: room.phase,
+        recoveryDurationMs: disconnectedAt === null ? 0 : Date.now() - disconnectedAt,
+      })
+      syncRoom(room)
+      return
+    }
+
+    if (details.role !== 'player') return fail()
+
+    let sessionId: string
+    try {
+      sessionId = normalizeSessionId(details.sessionId)
+    } catch {
+      return fail()
+    }
+    const participantId = room.participantSessions.get(sessionId)
+    const participant = participantId ? room.participants.get(participantId) : undefined
+    if (!participant) return fail()
+
+    const existingSocketIds = [...room.connections]
+      .filter(([existingSocketId, connection]) => (
+        existingSocketId !== socket.id && connection.participantId === participant.id
+      ))
+      .map(([existingSocketId]) => existingSocketId)
+
+    leaveCurrentRoom(socket)
+    for (const existingSocketId of existingSocketIds) {
+      room.connections.delete(existingSocketId)
+      socketRooms.delete(existingSocketId)
+      io.sockets.sockets.get(existingSocketId)?.disconnect(true)
+    }
+
+    const disconnect = room.disconnectTimers.get(participant.id)
+    if (disconnect) clearTimeout(disconnect.timer)
+    room.disconnectTimers.delete(participant.id)
+    room.connections.set(socket.id, { role: 'player', participantId: participant.id })
+    socketRooms.set(socket.id, room.code)
+    repairRoomFeudTurns(room)
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    writeRoomConnectionDiagnostic({
+      event: 'recovered',
+      role: 'player',
+      roomCode: room.code,
+      phase: room.phase,
+      recoveryDurationMs: disconnect ? Date.now() - disconnect.disconnectedAt : 0,
+    })
     syncRoom(room)
   })
 
@@ -1168,7 +1366,7 @@ io.on('connection', (socket) => {
       )
       if (!result.ok) {
         if (/repeat answer/i.test(result.error)) {
-          io.sockets.sockets.get(room.hostSocketId)?.emit('fast-money:repeat')
+          if (room.hostSocketId) io.sockets.sockets.get(room.hostSocketId)?.emit('fast-money:repeat')
         }
         scheduleFastMoneyExpiration(room)
         syncRoom(room)
@@ -1295,7 +1493,7 @@ io.on('connection', (socket) => {
   })
 
   socket.on('room:leave', () => leaveCurrentRoom(socket))
-  socket.on('disconnect', () => leaveCurrentRoom(socket, false, true))
+  socket.on('disconnect', (reason) => leaveCurrentRoom(socket, false, true, reason))
 })
 
 const port = Number(process.env.PORT ?? 3001)

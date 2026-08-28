@@ -4,6 +4,7 @@ import { starterFeudPack } from '../src/gameData.js'
 import type {
   ClientToServerEvents,
   GameConfig,
+  HostRoomCreation,
   RoomResult,
   RoomSnapshot,
   ServerToClientEvents,
@@ -44,7 +45,7 @@ const result = <T>(run: (reply: (value: RoomResult<T>) => void) => void) => new 
   run((value) => unwrap(value, resolve, reject))
 })
 
-const createRoom = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('room:create', feudConfig, reply))
+const createRoom = (socket: TestSocket) => result<HostRoomCreation>((reply) => socket.emit('room:create', feudConfig, reply)).then((creation) => creation.room)
 const joinRoom = (socket: TestSocket, code: string, name: string, sessionId: string) => result<RoomSnapshot>((reply) => socket.emit('room:join', {
   code,
   name,

@@ -7,6 +7,7 @@ import {
   type ChatTypingUpdate,
   type ClientToServerEvents,
   type GameConfig,
+  type HostRoomCreation,
   type PlayPassChoice,
   type RoomResult,
   type RoomSnapshot,
@@ -38,7 +39,7 @@ function result<T>(emit: (reply: (value: RoomResult<T>) => void) => void): Promi
   return new Promise((resolve, reject) => emit((value) => value.ok ? resolve(value.data) : reject(new Error(value.error))))
 }
 
-const createRoom = (socket: TestSocket) => result<RoomSnapshot>((reply) => socket.emit('room:create', config, reply))
+const createRoom = (socket: TestSocket) => result<HostRoomCreation>((reply) => socket.emit('room:create', config, reply)).then((creation) => creation.room)
 const sessionId = (name: string) => `test-session-${name.toLowerCase()}-12345`
 const joinRoom = (socket: TestSocket, code: string, name: string, avatarId: string | null = null, playerSessionId = sessionId(name)) => result<RoomSnapshot>((reply) => socket.emit('room:join', { code, name, avatarId, sessionId: playerSessionId }, reply))
 const updateIdentity = (socket: TestSocket, name: string, avatarId: string | null) => result<RoomSnapshot>((reply) => socket.emit('participant:update-identity', { name, avatarId }, reply))
