@@ -86,6 +86,11 @@ interface Winner {
   team: TeamId;
 }
 
+interface RoundResolution {
+  teamIndex: TeamIndex;
+  points: number;
+}
+
 interface BoltProps {
   size?: number;
 }
@@ -3532,8 +3537,15 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
   const [revealed, setRevealed] = useState<number[]>([]);
   const [strikes, setStrikes] = useState(0);
   const [scores, setScores] = useState<[number, number]>([0, 0]);
+  const [roundResolution, setRoundResolution] = useState<RoundResolution | null>(null);
   const [winner, setWinner] = useState<Winner | null>(null);
   const [fastMoneyError, setFastMoneyError] = useState("");
+  const roundAwarded = useRef(false);
+  const roundFinishing = useRef(false);
+
+  useEffect(() => {
+    if (!roundResolution) roundFinishing.current = false;
+  }, [roundResolution]);
 
   useEffect(() => roomClient.subscribeFastMoneyRepeat(() => {
     void gameAudio.play("repeat-answer");
@@ -3598,12 +3610,13 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
     setRevealed((current) =>
       current.includes(index) ? current : [...current, index],
     );
-    if (room.feudTurns.activeTeam && strikes < 3) {
+    if (!roundResolution && room.feudTurns.activeTeam && strikes < 3) {
       void roomClient.advanceFeudTurn().catch(() => undefined);
     }
   };
 
   const addStrike = () => {
+    if (roundResolution) return;
     void gameAudio.play("wrong-answer");
     setStrikes((current) => Math.min(3, current + 1));
     if (room.feudTurns.activeTeam && strikes < 2) {
@@ -3612,25 +3625,38 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
   };
 
   const awardRound = (teamIndex: TeamIndex) => {
+    if (roundAwarded.current || roundPot === 0) return;
+    roundAwarded.current = true;
     void roomClient.endFeudQuestion();
-    void roomClient.nextBuzzerPair();
     const nextScores: [number, number] = [scores[0], scores[1]];
     nextScores[teamIndex] += roundPot;
     setScores(nextScores);
-    if (nextScores[teamIndex] >= config.winningScore) {
+    setRoundResolution({ teamIndex, points: roundPot });
+    if (nextScores[teamIndex] < config.winningScore) {
+      void gameAudio.play("round-win");
+    }
+  };
+
+  const finishRound = () => {
+    if (!roundResolution || roundFinishing.current) return;
+    roundFinishing.current = true;
+    const { teamIndex } = roundResolution;
+    if (scores[teamIndex] >= config.winningScore) {
       void gameAudio.play("game-win");
       setWinner({
         name: teamIndex === 0 ? config.teamOne : config.teamTwo,
-        score: nextScores[teamIndex],
+        score: scores[teamIndex],
         team: teamIndex === 0 ? "one" : "two",
       });
       return;
     }
-    void gameAudio.play("round-win");
+    void roomClient.nextBuzzerPair();
     setRound((current) => current + 1);
     setQuestionIndex((current) => (current + 1) % config.pack.questions.length);
     setRevealed([]);
     setStrikes(0);
+    setRoundResolution(null);
+    roundAwarded.current = false;
   };
 
   const adjustScore = (teamIndex: TeamIndex, change: number) => {
@@ -3642,6 +3668,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
   };
 
   const newQuestion = () => {
+    if (roundResolution) return;
     void roomClient.endFeudQuestion();
     void roomClient.resetBuzzer();
     setQuestionIndex((current) => (current + 1) % config.pack.questions.length);
@@ -3721,7 +3748,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
           className="round-pot"
           aria-label={`${roundPot} points in the round`}
         >
-          <span>Round pot</span>
+          <span>{roundResolution ? "Board total" : "Round pot"}</span>
           <strong>{roundPot}</strong>
         </div>
         <ScoreCard
@@ -3735,7 +3762,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
       <section className="question-board">
         <header className="question-board__header">
           <span>{config.pack.title} · We asked 100 people…</span>
-          <button onClick={newQuestion}>Skip question ↗</button>
+          <button onClick={newQuestion} disabled={roundResolution !== null}>Skip question ↗</button>
         </header>
         {room.buzzer.status === "armed" && (
           <div
@@ -3796,26 +3823,45 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
           </div>
           <div className="strike-actions">
             <button
+              disabled={roundResolution !== null}
               onClick={() => setStrikes((current) => Math.max(0, current - 1))}
               aria-label="Remove a strike"
             >
               Undo
             </button>
-            <button onClick={addStrike}>
+            <button onClick={addStrike} disabled={roundResolution !== null}>
               Add strike <kbd>X</kbd>
             </button>
           </div>
         </div>
         <div className="award-panel">
-          <span>Award {roundPot} points</span>
-          <div>
-            <button disabled={roundPot === 0} onClick={() => awardRound(0)}>
-              {config.teamOne} <kbd>A</kbd>
-            </button>
-            <button disabled={roundPot === 0} onClick={() => awardRound(1)}>
-              {config.teamTwo} <kbd>B</kbd>
-            </button>
-          </div>
+          {roundResolution ? (
+            <>
+              <span>
+                {roundResolution.points} points awarded to{" "}
+                {roundResolution.teamIndex === 0 ? config.teamOne : config.teamTwo}
+              </span>
+              <div>
+                <button onClick={finishRound}>
+                  {scores[roundResolution.teamIndex] >= config.winningScore
+                    ? "Finish game"
+                    : "Next question"} ↗
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <span>Award {roundPot} points</span>
+              <div>
+                <button disabled={roundPot === 0} onClick={() => awardRound(0)}>
+                  {config.teamOne} <kbd>A</kbd>
+                </button>
+                <button disabled={roundPot === 0} onClick={() => awardRound(1)}>
+                  {config.teamTwo} <kbd>B</kbd>
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </section>
 
