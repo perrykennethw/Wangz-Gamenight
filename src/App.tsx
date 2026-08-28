@@ -18,6 +18,12 @@ import {
 import { FeudGameBuilder, saveFeudGamePackDraft } from "./FeudGameBuilder";
 import { GamePackError, parseFeudGamePack } from "./feudGamePack";
 import {
+  activeFeudQuestionIndex,
+  activeFeudQuestionProgress,
+  createFeudQuestionNavigationState,
+  feudQuestionNavigationReducer,
+} from "./feudQuestionNavigation";
+import {
   GAME_AUDIO_CUE_LABELS,
   gameAudio,
   type GameAudioCue,
@@ -93,11 +99,6 @@ interface Winner {
   team: TeamId;
 }
 
-interface RoundResolution {
-  teamIndex: TeamIndex;
-  points: number;
-}
-
 interface BoltProps {
   size?: number;
 }
@@ -136,6 +137,7 @@ interface AnswerTileProps {
   points: number;
   number: number;
   revealed: boolean;
+  disabled?: boolean;
   onReveal: () => void;
 }
 
@@ -2876,11 +2878,13 @@ function AnswerTile({
   points,
   number,
   revealed,
+  disabled = false,
   onReveal,
 }: AnswerTileProps) {
   return (
     <button
       className={`answer-tile answer-tile--moderator ${revealed ? "is-revealed" : ""}`}
+      disabled={disabled}
       onClick={onReveal}
       aria-label={
         revealed
@@ -3640,19 +3644,29 @@ function HostBuzzerPanel({ room }: { room: RoomSnapshot }) {
 
 function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GameProps) {
   const [round, setRound] = useState(1);
-  const [questionIndex, setQuestionIndex] = useState(0);
-  const [revealed, setRevealed] = useState<number[]>([]);
-  const [strikes, setStrikes] = useState(0);
+  const [questionNavigation, dispatchQuestionNavigation] = useReducer(
+    feudQuestionNavigationReducer,
+    config.pack.questions.map((question) => question.id),
+    createFeudQuestionNavigationState,
+  );
   const [scores, setScores] = useState<[number, number]>([0, 0]);
-  const [roundResolution, setRoundResolution] = useState<RoundResolution | null>(null);
   const [winner, setWinner] = useState<Winner | null>(null);
   const [fastMoneyError, setFastMoneyError] = useState("");
-  const roundAwarded = useRef(false);
+  const [questionNavigationError, setQuestionNavigationError] = useState("");
+  const [isNavigatingQuestion, setIsNavigatingQuestion] = useState(false);
+  const awardedQuestionIds = useRef(new Set<string>());
   const roundFinishing = useRef(false);
 
+  const questionIndex = activeFeudQuestionIndex(questionNavigation);
+  const questionProgress = activeFeudQuestionProgress(questionNavigation);
+  const { revealed, strikes, resolution: roundResolution } = questionProgress;
+  const hasPreviousQuestion = questionIndex > 0;
+  const hasNextQuestion = questionIndex < config.pack.questions.length - 1;
+  const pendingRoundAdvance = Boolean(roundResolution && !roundResolution.advanced);
+
   useEffect(() => {
-    if (!roundResolution) roundFinishing.current = false;
-  }, [roundResolution]);
+    if (!pendingRoundAdvance) roundFinishing.current = false;
+  }, [pendingRoundAdvance]);
 
   useEffect(() => roomClient.subscribeFastMoneyRepeat(() => {
     void gameAudio.play("repeat-answer");
@@ -3667,9 +3681,9 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
     previousBuzzerWinner.current = buzzerWinnerId;
   }, [buzzerWinnerId]);
 
-  const question =
-    config.pack.questions[questionIndex % config.pack.questions.length];
-  const multiplier = multiplierForRound(round);
+  const question = config.pack.questions[questionIndex];
+  const displayRound = roundResolution?.round ?? round;
+  const multiplier = multiplierForRound(displayRound);
   const roundPot = useMemo(
     () =>
       revealed.reduce(
@@ -3684,7 +3698,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
       : createFeudPresentation({
           room,
           config,
-          round,
+          round: displayRound,
           multiplier,
           question,
           revealed,
@@ -3696,7 +3710,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
     [
       room,
       config,
-      round,
+      displayRound,
       multiplier,
       question,
       revealed,
@@ -3713,10 +3727,9 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
       void gameAudio.play("repeat-answer");
       return;
     }
+    if (roundResolution?.advanced) return;
     void gameAudio.play("answer-reveal");
-    setRevealed((current) =>
-      current.includes(index) ? current : [...current, index],
-    );
+    dispatchQuestionNavigation({ type: "reveal", answerIndex: index });
     if (!roundResolution && room.feudTurns.activeTeam && strikes < 3) {
       void roomClient.advanceFeudTurn().catch(() => undefined);
     }
@@ -3725,27 +3738,36 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
   const addStrike = () => {
     if (roundResolution) return;
     void gameAudio.play("wrong-answer");
-    setStrikes((current) => Math.min(3, current + 1));
+    dispatchQuestionNavigation({ type: "set-strikes", strikes: strikes + 1 });
     if (room.feudTurns.activeTeam && strikes < 2) {
       void roomClient.advanceFeudTurn().catch(() => undefined);
     }
   };
 
   const awardRound = (teamIndex: TeamIndex) => {
-    if (roundAwarded.current || roundPot === 0) return;
-    roundAwarded.current = true;
+    if (
+      awardedQuestionIds.current.has(question.id)
+      || roundResolution
+      || roundPot === 0
+    ) return;
+    awardedQuestionIds.current.add(question.id);
     void roomClient.endFeudQuestion();
     const nextScores: [number, number] = [scores[0], scores[1]];
     nextScores[teamIndex] += roundPot;
     setScores(nextScores);
-    setRoundResolution({ teamIndex, points: roundPot });
+    dispatchQuestionNavigation({
+      type: "award",
+      teamIndex,
+      points: roundPot,
+      round,
+    });
     if (nextScores[teamIndex] < config.winningScore) {
       void gameAudio.play("round-win");
     }
   };
 
   const finishRound = () => {
-    if (!roundResolution || roundFinishing.current) return;
+    if (!roundResolution || roundResolution.advanced || roundFinishing.current) return;
     roundFinishing.current = true;
     const { teamIndex } = roundResolution;
     if (scores[teamIndex] >= config.winningScore) {
@@ -3757,13 +3779,16 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
       });
       return;
     }
+    if (!hasNextQuestion) {
+      roundFinishing.current = false;
+      setQuestionNavigationError("This is the final question in the game pack.");
+      return;
+    }
     void roomClient.nextBuzzerPair();
+    dispatchQuestionNavigation({ type: "advance-award" });
+    dispatchQuestionNavigation({ type: "navigate", direction: 1 });
     setRound((current) => current + 1);
-    setQuestionIndex((current) => (current + 1) % config.pack.questions.length);
-    setRevealed([]);
-    setStrikes(0);
-    setRoundResolution(null);
-    roundAwarded.current = false;
+    setQuestionNavigationError("");
   };
 
   const changeScore = (teamIndex: TeamIndex, score: number) => {
@@ -3774,13 +3799,23 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
     });
   };
 
-  const newQuestion = () => {
-    if (roundResolution) return;
-    void roomClient.endFeudQuestion();
-    void roomClient.resetBuzzer();
-    setQuestionIndex((current) => (current + 1) % config.pack.questions.length);
-    setRevealed([]);
-    setStrikes(0);
+  const navigateQuestion = async (direction: -1 | 1) => {
+    const canNavigate = direction === -1 ? hasPreviousQuestion : hasNextQuestion;
+    if (!canNavigate || pendingRoundAdvance || isNavigatingQuestion) return;
+
+    setIsNavigatingQuestion(true);
+    setQuestionNavigationError("");
+    try {
+      await roomClient.endFeudQuestion();
+      await roomClient.resetBuzzer();
+      dispatchQuestionNavigation({ type: "navigate", direction });
+    } catch (cause) {
+      setQuestionNavigationError(
+        cause instanceof Error ? cause.message : "Could not change questions.",
+      );
+    } finally {
+      setIsNavigatingQuestion(false);
+    }
   };
 
   useEffect(() => {
@@ -3839,7 +3874,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
         <Brand compact />
         <div className="round-indicator">
           <span>Room {roomCode}</span>
-          <span>Round {round}</span>
+          <span>Round {displayRound}</span>
           <b>{multiplier}× points</b>
         </div>
         <div className="host-view-actions">
@@ -3876,8 +3911,44 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
       <section className="question-board">
         <header className="question-board__header">
           <span>{config.pack.title} · We asked 100 people…</span>
-          <button onClick={newQuestion} disabled={roundResolution !== null}>Skip question ↗</button>
+          <div className="question-board__transport" aria-label="Question navigation">
+            <button
+              type="button"
+              aria-label="Previous question"
+              disabled={
+                !hasPreviousQuestion
+                || pendingRoundAdvance
+                || isNavigatingQuestion
+              }
+              onClick={() => void navigateQuestion(-1)}
+            >
+              ← Previous
+            </button>
+            <strong>Question {questionIndex + 1} of {config.pack.questions.length}</strong>
+            <button
+              type="button"
+              aria-label="Next question"
+              disabled={
+                !hasNextQuestion
+                || pendingRoundAdvance
+                || isNavigatingQuestion
+              }
+              onClick={() => void navigateQuestion(1)}
+            >
+              Next →
+            </button>
+          </div>
         </header>
+        {questionNavigationError && (
+          <p className="question-board__navigation-error" role="alert">
+            {questionNavigationError}
+          </p>
+        )}
+        {roundResolution?.advanced && (
+          <p className="question-board__review-status" role="status">
+            Reviewing completed round {roundResolution.round}. Scoring controls are locked.
+          </p>
+        )}
         {room.buzzer.status === "armed" && (
           <div
             className="buzzer-board-banner buzzer-board-banner--armed"
@@ -3914,6 +3985,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
               points={answer.points}
               number={index + 1}
               revealed={revealed.includes(index)}
+              disabled={Boolean(roundResolution?.advanced)}
               onReveal={() => revealAnswer(index)}
             />
           ))}
@@ -3938,7 +4010,10 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
           <div className="strike-actions">
             <button
               disabled={roundResolution !== null}
-              onClick={() => setStrikes((current) => Math.max(0, current - 1))}
+              onClick={() => dispatchQuestionNavigation({
+                type: "set-strikes",
+                strikes: strikes - 1,
+              })}
               aria-label="Remove a strike"
             >
               Undo
@@ -3955,13 +4030,25 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
                 {roundResolution.points} points awarded to{" "}
                 {roundResolution.teamIndex === 0 ? config.teamOne : config.teamTwo}
               </span>
-              <div>
-                <button onClick={finishRound}>
-                  {scores[roundResolution.teamIndex] >= config.winningScore
-                    ? "Finish game"
-                    : "Next question"} ↗
-                </button>
-              </div>
+              {roundResolution.advanced ? (
+                <small>Completed round {roundResolution.round}</small>
+              ) : (
+                <div>
+                  <button
+                    onClick={finishRound}
+                    disabled={
+                      scores[roundResolution.teamIndex] < config.winningScore
+                      && !hasNextQuestion
+                    }
+                  >
+                    {scores[roundResolution.teamIndex] >= config.winningScore
+                      ? "Finish game"
+                      : hasNextQuestion
+                        ? "Next question"
+                        : "No more questions"} ↗
+                  </button>
+                </div>
+              )}
             </>
           ) : (
             <>

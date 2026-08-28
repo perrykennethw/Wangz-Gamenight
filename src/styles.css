@@ -288,8 +288,13 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .round-pot strong { font-family: var(--display); font-size: 40px; color: var(--gold); line-height: 1; }
 
 .question-board { max-width: 980px; margin: 0 auto; padding: 22px 26px 27px; background: var(--ink); border: 5px solid var(--gold); box-shadow: 0 0 0 8px var(--ink-deep), 0 16px 35px rgba(0,0,0,.25); }
-.question-board__header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
+.question-board__header { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; color: var(--muted); font-size: 10px; font-weight: 800; letter-spacing: .13em; text-transform: uppercase; }
 .question-board__header button { padding: 6px; color: var(--muted); background: none; border: 0; font-size: 10px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; }
+.question-board__header button:disabled { opacity: .35; cursor: not-allowed; }
+.question-board__transport { display: grid; grid-template-columns: auto minmax(112px, auto) auto; align-items: center; gap: 5px; }
+.question-board__transport strong { color: var(--gold); font-size: 9px; letter-spacing: .1em; text-align: center; }
+.question-board__navigation-error, .question-board__review-status { margin: 0 0 12px; padding: 8px 10px; color: var(--paper); background: #9f322b; font-size: 9px; font-weight: 800; letter-spacing: .04em; }
+.question-board__review-status { color: var(--ink); background: var(--gold); }
 .buzzer-board-banner { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 0 auto 14px; padding: 10px 14px; font-size: 10px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; }
 .buzzer-board-banner--armed { width: max-content; color: var(--ink); background: var(--gold); }
 .buzzer-board-banner--winner { color: var(--ink); background: var(--gold); animation: buzz-winner .35s cubic-bezier(.18,.89,.32,1.28); }
@@ -305,6 +310,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .answer-tile__front b { display: grid; place-items: center; width: 35px; height: 35px; color: var(--ink); background: var(--gold); border-radius: 50%; font-family: var(--display); font-size: 24px; }
 .answer-tile__front small { color: #9eb9df; font-size: 9px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; }
 .answer-tile--moderator .answer-tile__front { justify-content: flex-start; padding-left: 13px; text-align: left; }
+.answer-tile--moderator:disabled { opacity: 1; cursor: default; }
 .answer-tile__moderator-copy { display: grid; min-width: 0; gap: 2px; }
 .answer-tile__moderator-copy strong { overflow: hidden; color: var(--white); font-family: var(--display); font-size: clamp(16px, 2vw, 21px); letter-spacing: .025em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
 .answer-tile--moderator .answer-tile__front > em { align-self: stretch; display: grid; place-items: center; min-width: 62px; margin-left: auto; color: var(--gold); background: rgba(255,197,71,.12); font-family: var(--display); font-size: 27px; font-style: normal; }
@@ -1199,6 +1205,10 @@ button.team-roster:hover { transform: translateY(-3px); box-shadow: 0 8px 0 rgba
   .round-pot span { font-size: 7px; text-align: center; }
   .round-pot strong { font-size: 30px; }
   .question-board { margin: 0 10px; padding: 17px 13px 18px; border-width: 3px; box-shadow: 0 0 0 5px var(--ink-deep), 0 10px 25px rgba(0,0,0,.25); }
+  .question-board__header { align-items: stretch; flex-direction: column; gap: 7px; }
+  .question-board__transport { grid-template-columns: 1fr minmax(105px, auto) 1fr; }
+  .question-board__transport button:first-child { text-align: left; }
+  .question-board__transport button:last-child { text-align: right; }
   .question-board h1 { font-size: 20px; }
   .answers-grid { grid-auto-flow: row; grid-template-columns: 1fr; grid-template-rows: none; gap: 7px; }
   .answer-tile { min-height: 51px; }
