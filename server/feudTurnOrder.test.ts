@@ -10,11 +10,11 @@ import {
 import type { Participant } from "../src/roomTypes.js";
 
 const participants: Participant[] = [
-  { id: "a", name: "Avery", avatarId: null, team: "one" },
-  { id: "b", name: "Bailey", avatarId: null, team: "one" },
-  { id: "c", name: "Casey", avatarId: null, team: "one" },
-  { id: "d", name: "Devon", avatarId: null, team: "two" },
-  { id: "e", name: "Ellis", avatarId: null, team: "two" },
+  { id: "a", name: "Avery", avatarId: null, team: "one", status: "active" },
+  { id: "b", name: "Bailey", avatarId: null, team: "one", status: "active" },
+  { id: "c", name: "Casey", avatarId: null, team: "one", status: "active" },
+  { id: "d", name: "Devon", avatarId: null, team: "two", status: "active" },
+  { id: "e", name: "Ellis", avatarId: null, team: "two", status: "active" },
 ];
 const everyone = new Set(participants.map((participant) => participant.id));
 

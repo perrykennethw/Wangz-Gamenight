@@ -1381,6 +1381,79 @@ function HostUnassignedPlayers({
   );
 }
 
+function HostWaitingPlayersPanel({ room }: { room: RoomSnapshot }) {
+  const [assigningPlayerId, setAssigningPlayerId] = useState<string | null>(null);
+  const [status, setStatus] = useState("");
+  const [error, setError] = useState("");
+  const waitingPlayers = room.participants.filter(
+    (participant) => participant.status === "waiting",
+  );
+
+  if (waitingPlayers.length === 0) return null;
+
+  const assign = async (participant: Participant, team: TeamId) => {
+    setAssigningPlayerId(participant.id);
+    setStatus("");
+    setError("");
+    try {
+      await roomClient.assignTeam(participant.id, team);
+      setStatus(
+        `${participant.name} will join ${teamName(room, team)} ${
+          room.game?.kind === "fast-money" ? "after Fast Money" : "on the next question"
+        }.`,
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not assign that waiting player.",
+      );
+    } finally {
+      setAssigningPlayerId(null);
+    }
+  };
+
+  return (
+    <section className="host-waiting-players" aria-label="Players waiting to join">
+      <header>
+        <div>
+          <span>Late arrivals</span>
+          <h2>Players waiting to join</h2>
+        </div>
+        <strong>{waitingPlayers.length}</strong>
+      </header>
+      <p>
+        Assign a team now. They can enter that team’s huddle immediately and
+        become active {room.game?.kind === "fast-money" ? "after Fast Money" : "with the next question"}.
+      </p>
+      <div className="host-waiting-players__list">
+        {waitingPlayers.map((participant) => (
+          <article key={participant.id}>
+            <PlayerIdentity participant={participant} compact />
+            <small>
+              {participant.team
+                ? `Assigned to ${teamName(room, participant.team)}`
+                : "Waiting for a team"}
+            </small>
+            <div>
+              {(["one", "two"] as TeamId[]).map((team) => (
+                <button
+                  type="button"
+                  key={team}
+                  disabled={assigningPlayerId !== null || participant.team === team}
+                  onClick={() => void assign(participant, team)}
+                >
+                  {participant.team === team ? `${teamName(room, team)} ✓` : teamName(room, team)}
+                </button>
+              ))}
+            </div>
+          </article>
+        ))}
+      </div>
+      {status && <p className="team-update-message" role="status">{status}</p>}
+      {error && <p className="form-error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
 interface TeamChatProps {
   team: TeamId;
   teamLabel: string;
@@ -2579,6 +2652,51 @@ function PlayerFeudExperience({
   );
 }
 
+function WaitingPlayerExperience({
+  room,
+  participantId,
+  team,
+  onSendMessage,
+  phaseKey,
+}: {
+  room: RoomSnapshot;
+  participantId: string;
+  team: TeamId | null;
+  onSendMessage: (message: string) => Promise<void>;
+  phaseKey: string;
+}) {
+  const isFastMoney = room.game?.kind === "fast-money";
+
+  return (
+    <div className="waiting-player-experience">
+      <section className="waiting-player-card" role="status">
+        <p className="eyebrow">Game in progress</p>
+        <h1>
+          {team ? "Your team is set." : "You’re on the guest list."}
+          <br />
+          <em>{team ? "Next question." : "Waiting for the host."}</em>
+        </h1>
+        <p>
+          {team
+            ? isFastMoney
+              ? `You’re assigned to ${teamName(room, team)}. You’ll become active after Fast Money.`
+              : `You’re assigned to ${teamName(room, team)}. You’ll enter the answering order when the host advances.`
+            : "The host will place you on a team. Until then, game controls and both private huddles stay locked."}
+        </p>
+      </section>
+      {team && (
+        <PlayerChatDrawer
+          room={room}
+          team={team}
+          participantId={participantId}
+          onSendMessage={onSendMessage}
+          phaseKey={phaseKey}
+        />
+      )}
+    </div>
+  );
+}
+
 // PROTOTYPE: Three realtime buzzer treatments on the existing player-room route, switchable via ?variant=.
 function PlayerRoom({
   room,
@@ -2595,8 +2713,14 @@ function PlayerRoom({
   const previousPhaseKey = useRef("");
   const viewer = room.viewer;
   const viewerTeam = viewer.role === "player" ? viewer.team : null;
+  const viewerParticipant = viewer.role === "player"
+    ? room.participants.find((participant) => participant.id === viewer.participantId)
+    : undefined;
+  const viewerIsWaiting = viewerParticipant?.status === "waiting";
 
-  const phaseKey = room.config.kind === "spin-solve" && room.game?.kind === "spin-solve"
+  const phaseKey = viewerIsWaiting
+    ? `waiting:${viewerTeam ?? "unassigned"}:${room.game?.kind ?? "regular"}`
+    : room.config.kind === "spin-solve" && room.game?.kind === "spin-solve"
     ? `spin:${room.game.phase}:${room.game.activeTeam}:${room.game.spinId}`
     : room.game?.kind === "fast-money"
       ? `fast-money:${room.game.phase}:${room.game.viewerRole}:${room.game.isIsolated}:${room.game.currentQuestionIndex ?? "none"}`
@@ -2671,7 +2795,11 @@ function PlayerRoom({
             <span className="live-dot" />
             <strong>Game in progress</strong>
             <span>
-              {room.config.kind === "spin-solve"
+              {viewerIsWaiting
+                ? viewerTeam
+                  ? `The host assigned your team. You’ll join ${room.game?.kind === "fast-money" ? "after Fast Money" : "on the next question"}.`
+                  : "The host will assign your team before you enter play."
+                : room.config.kind === "spin-solve"
                 ? "Eyes on the main screen—your controls are live below."
                 : room.game?.kind === "fast-money"
                   ? room.game.isIsolated
@@ -2689,7 +2817,15 @@ function PlayerRoom({
         )}
         <SharedTimerAudience timer={room.timer} className="player-shared-timer" />
         <LobbyAvatarEditor room={room} participantId={viewer.participantId} />
-        {!viewer.team ? (
+        {viewerIsWaiting ? (
+          <WaitingPlayerExperience
+            room={room}
+            participantId={viewer.participantId}
+            team={viewerTeam}
+            onSendMessage={onSendMessage}
+            phaseKey={phaseKey}
+          />
+        ) : !viewer.team ? (
           <>
             <div className="player-room__intro">
               <p className="eyebrow">You’re in</p>
@@ -3601,7 +3737,9 @@ function HostBuzzerPanel({ room }: { room: RoomSnapshot }) {
               aria-label={`${teamName(room, team)} representative`}
             >
               {room.participants
-                .filter((participant) => participant.team === team)
+                .filter((participant) => (
+                  participant.status === "active" && participant.team === team
+                ))
                 .map((participant) => (
                   <option key={participant.id} value={participant.id}>
                     {participant.name}
@@ -3766,7 +3904,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
     }
   };
 
-  const finishRound = () => {
+  const finishRound = async () => {
     if (!roundResolution || roundResolution.advanced || roundFinishing.current) return;
     roundFinishing.current = true;
     const { teamIndex } = roundResolution;
@@ -3784,11 +3922,19 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
       setQuestionNavigationError("This is the final question in the game pack.");
       return;
     }
-    void roomClient.nextBuzzerPair();
-    dispatchQuestionNavigation({ type: "advance-award" });
-    dispatchQuestionNavigation({ type: "navigate", direction: 1 });
-    setRound((current) => current + 1);
-    setQuestionNavigationError("");
+    try {
+      await roomClient.prepareNextFeudQuestion();
+      await roomClient.nextBuzzerPair();
+      dispatchQuestionNavigation({ type: "advance-award" });
+      dispatchQuestionNavigation({ type: "navigate", direction: 1 });
+      setRound((current) => current + 1);
+      setQuestionNavigationError("");
+    } catch (cause) {
+      roundFinishing.current = false;
+      setQuestionNavigationError(
+        cause instanceof Error ? cause.message : "Could not prepare the next question.",
+      );
+    }
   };
 
   const changeScore = (teamIndex: TeamIndex, score: number) => {
@@ -3806,8 +3952,12 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
     setIsNavigatingQuestion(true);
     setQuestionNavigationError("");
     try {
-      await roomClient.endFeudQuestion();
-      await roomClient.resetBuzzer();
+      if (direction === 1) {
+        await roomClient.prepareNextFeudQuestion();
+      } else {
+        await roomClient.endFeudQuestion();
+        await roomClient.resetBuzzer();
+      }
       dispatchQuestionNavigation({ type: "navigate", direction });
     } catch (cause) {
       setQuestionNavigationError(
@@ -3854,6 +4004,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
             <button className="text-button text-button--light" onClick={onExit}>Exit game</button>
           </div>
         </header>
+        <HostWaitingPlayersPanel room={room} />
         <FastMoneyHost room={room} />
         {room.game.phase === "complete" && (
           <WinnerModal
@@ -3885,6 +4036,8 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
           </button>
         </div>
       </header>
+
+      <HostWaitingPlayersPanel room={room} />
 
       <section className="score-row">
         <ScoreCard
@@ -4035,7 +4188,7 @@ function Game({ config, roomCode, room, onExit, onReplay, onChangeGame }: GamePr
               ) : (
                 <div>
                   <button
-                    onClick={finishRound}
+                    onClick={() => void finishRound()}
                     disabled={
                       scores[roundResolution.teamIndex] < config.winningScore
                       && !hasNextQuestion

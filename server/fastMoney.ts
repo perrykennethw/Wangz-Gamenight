@@ -122,7 +122,9 @@ function requireHost(actor: FastMoneyActor): string | null {
 }
 
 function eligiblePlayers(participants: Participant[], team: TeamId): Participant[] {
-  return participants.filter((participant) => participant.team === team)
+  return participants.filter((participant) => (
+    participant.status === 'active' && participant.team === team
+  ))
 }
 
 function validateLineup(

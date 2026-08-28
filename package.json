@@ -36,6 +36,8 @@
     "test:player-session": "tsx server/playerSessionIdentity.test.ts",
     "test:turn-order": "tsx server/feudTurnOrder.test.ts",
     "test:turn-order-integration": "tsx server/feudTurnOrder.integration.ts",
+    "test:late-join": "tsx server/lateJoin.integration.ts",
+    "test:late-join-ui": "vitest run server/lateJoin.ui.test.tsx --environment happy-dom",
     "server": "tsx server/index.ts",
     "start": "node server-dist/server/index.js",
     "preview": "vite preview"

@@ -31,6 +31,7 @@ const roomClientMock = vi.hoisted(() => ({
   resetBuzzer: vi.fn(),
   nextBuzzerPair: vi.fn(),
   endFeudQuestion: vi.fn(),
+  prepareNextFeudQuestion: vi.fn(),
   advanceFeudTurn: vi.fn(),
 }));
 
@@ -57,8 +58,8 @@ function roomSnapshot(config: FeudGameConfig, phase: "lobby" | "playing"): RoomS
     gameRevision: 1,
     config,
     participants: [
-      { id: "player-one", name: "Avery", avatarId: null, team: "one" },
-      { id: "player-two", name: "Blake", avatarId: null, team: "two" },
+      { id: "player-one", name: "Avery", avatarId: null, team: "one", status: "active" },
+      { id: "player-two", name: "Blake", avatarId: null, team: "two", status: "active" },
     ],
     messages: [],
     teamChats: { one: [], two: [] },
@@ -196,6 +197,7 @@ beforeEach(() => {
     return roomSnapshot(latestConfig, "playing");
   });
   roomClientMock.endFeudQuestion.mockResolvedValue(undefined);
+  roomClientMock.prepareNextFeudQuestion.mockResolvedValue(undefined);
   roomClientMock.advanceFeudTurn.mockResolvedValue(undefined);
   roomClientMock.nextBuzzerPair.mockResolvedValue(undefined);
   roomClientMock.resetBuzzer.mockResolvedValue(undefined);
@@ -224,10 +226,9 @@ describe("Family Feud round awards", () => {
     expect(pageText()).toContain("Question 2 of 8");
     expect(pageText()).toContain("Name something that always seems to disappear at a party.");
     expect(document.querySelector('[aria-label="The Leftovers: 0 points"]')).not.toBeNull();
-    expect(roomClientMock.endFeudQuestion).toHaveBeenCalledOnce();
-    expect(roomClientMock.resetBuzzer).toHaveBeenCalledOnce();
-    expect(roomClientMock.endFeudQuestion.mock.invocationCallOrder[0])
-      .toBeLessThan(roomClientMock.resetBuzzer.mock.invocationCallOrder[0]);
+    expect(roomClientMock.prepareNextFeudQuestion).toHaveBeenCalledOnce();
+    expect(roomClientMock.endFeudQuestion).not.toHaveBeenCalled();
+    expect(roomClientMock.resetBuzzer).not.toHaveBeenCalled();
 
     const questionTwo = latestConfig?.pack.questions[1];
     const latestPresenterState = presenterStates

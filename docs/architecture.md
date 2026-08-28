@@ -43,6 +43,7 @@ Shared event names, commands, results, and snapshot types live in `src/roomTypes
 ## State ownership and lifetime
 
 - The server owns rooms, rosters, team assignment, game state, buzzers, play/pass state, answering order, chats, and timers.
+- A new player joining an active Family Feud room enters as a waiting player. The server owns their waiting status, permits host-only team assignment, projects only the assigned team huddle, and activates assigned waiting players at the next question boundary. Waiting players remain excluded from current-question controls and Fast Money eligibility.
 - A host connection owns its room. A host disconnect closes the room and notifies its players.
 - A player identity may reconnect from the same browser session during a 30-second grace period; after that, its roster seat is removed.
 - A room can return to its lobby for another game while retaining its code, player identities, teams, and—unless cleared—team huddles.

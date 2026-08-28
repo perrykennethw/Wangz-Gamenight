@@ -242,6 +242,14 @@ export class RoomClient {
     });
   }
 
+  prepareNextFeudQuestion(): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit("feud:prepare-next-question", (result) =>
+        this.finish(result, resolve, reject),
+      );
+    });
+  }
+
   advanceFeudTurn(): Promise<RoomSnapshot> {
     return new Promise((resolve, reject) => {
       this.socket.emit("feud:advance-turn", (result) =>
