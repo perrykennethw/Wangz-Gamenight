@@ -12,6 +12,7 @@ import type {
 } from "../src/roomTypes";
 
 const roomClientMock = vi.hoisted(() => ({
+  hasRecoveryIntent: vi.fn(() => false),
   subscribe: vi.fn(),
   subscribeTyping: vi.fn(() => () => undefined),
   subscribeFastMoneyRepeat: vi.fn(() => () => undefined),
@@ -91,6 +92,7 @@ function snapshot({
   return {
     code: "ABCDE",
     phase,
+    hostConnection: { status: "connected", recoveryDeadline: null },
     gameRevision: 1,
     config,
     participants,

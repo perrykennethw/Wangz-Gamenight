@@ -21,6 +21,18 @@ export interface JoinRoomDetails {
   sessionId: string;
 }
 
+export type RoomRecoveryRequest =
+  | {
+      role: "host";
+      code: string;
+      credential: string;
+    }
+  | {
+      role: "player";
+      code: string;
+      sessionId: string;
+    };
+
 export interface FeudAnswer {
   id: string;
   label: string;
@@ -247,6 +259,10 @@ export interface RoomSnapshot {
   code: string;
   phase: RoomPhase;
   gameRevision: number;
+  hostConnection: {
+    status: "connected" | "reconnecting";
+    recoveryDeadline: number | null;
+  };
   config: RoomConfig;
   participants: Participant[];
   messages: ChatMessage[];
@@ -258,6 +274,11 @@ export interface RoomSnapshot {
   timer: SharedTimerState;
   viewer: RoomViewer;
   game: GameView | null;
+}
+
+export interface HostRoomCreation {
+  room: RoomSnapshot;
+  recoveryCredential: string;
 }
 
 export type RoomResult<T> =
@@ -305,10 +326,14 @@ export type FastMoneyCommand =
 export interface ClientToServerEvents {
   "room:create": (
     config: GameConfig,
-    reply: (result: RoomResult<RoomSnapshot>) => void,
+    reply: (result: RoomResult<HostRoomCreation>) => void,
   ) => void;
   "room:join": (
     details: JoinRoomDetails,
+    reply: (result: RoomResult<RoomSnapshot>) => void,
+  ) => void;
+  "room:recover": (
+    details: RoomRecoveryRequest,
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "participant:update-identity": (

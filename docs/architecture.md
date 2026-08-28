@@ -44,8 +44,10 @@ Shared event names, commands, results, and snapshot types live in `src/roomTypes
 
 - The server owns rooms, rosters, team assignment, game state, buzzers, play/pass state, answering order, chats, and timers.
 - A new player joining an active Family Feud room enters as a waiting player. The server owns their waiting status, permits host-only team assignment, projects only the assigned team huddle, and activates assigned waiting players at the next question boundary. Waiting players remain excluded from current-question controls and Fast Money eligibility.
-- A host connection owns its room. A host disconnect closes the room and notifies its players.
-- A player identity may reconnect from the same browser session during a 30-second grace period; after that, its roster seat is removed.
+- Host and player transport disconnects begin a configurable recovery grace period (two minutes by default). During that window the room remains authoritative in memory, player seats retain their identity and team, and connected players can see that the host is reconnecting.
+- A host may reclaim the moderator role with an opaque credential stored in that browser tab's session storage. The server stores only its cryptographic hash and never includes the credential in a room snapshot or diagnostic event.
+- A player may reclaim the same roster seat with the browser-session player identifier. Recovery takes over an existing connection for that seat rather than creating a duplicate. When the grace period expires, the host's room closes or the player's seat is removed.
+- Explicitly leaving or closing a room clears browser recovery intent and remains terminal; transport loss alone is recoverable.
 - A room can return to its lobby for another game while retaining its code, player identities, teams, and—unless cleared—team huddles.
 - A room code locates a room but is not an authentication secret.
 - Rooms have no durable store. A server restart, replacement, or deployment removes every active room.
@@ -80,9 +82,11 @@ These modules should accept explicit state and actor inputs and return a result 
 | --- | --- |
 | `src/App.tsx` and UI modules | Host, player, and presenter rendering and browser interaction |
 | `src/roomClient.ts` | Typed Socket.IO client and reconnect intent |
+| `src/roomRecovery.ts` | Browser-session recovery intent validation and storage |
 | `src/roomTypes.ts` | Shared realtime contracts and viewer-facing state |
 | `src/presenterChannel.ts` | Audience-safe presenter projection and same-device transport |
 | `server/index.ts` | HTTP serving, room lifecycle, authorization, orchestration, and snapshot fan-out |
+| `server/roomDiagnostics.ts` | Credential-free structured connection and recovery diagnostics |
 | `server/fastMoney.ts`, `server/spinSolve.ts` | Server-owned game engines and views |
 | `server/*.test.ts`, `server/*.integration.ts` | Domain, authorization, privacy, reconnect, and realtime regression coverage |
 | `scripts/verify.mjs` | Complete local and PR verification entry point |

@@ -22,6 +22,7 @@ const config = {
 const room: RoomSnapshot = {
   code: 'ABCDE',
   phase: 'playing',
+  hostConnection: { status: 'connected', recoveryDeadline: null },
   gameRevision: 1,
   config,
   participants: [

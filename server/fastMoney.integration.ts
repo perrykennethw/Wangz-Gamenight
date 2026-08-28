@@ -35,7 +35,10 @@ function unwrap<T>(result: RoomResult<T>, resolve: (value: T) => void, reject: (
 }
 
 function createRoom(socket: TestSocket): Promise<RoomSnapshot> {
-  return new Promise((resolve, reject) => socket.emit('room:create', config, (result) => unwrap(result, resolve, reject)))
+  return new Promise((resolve, reject) => socket.emit('room:create', config, (result) => {
+    if (result.ok) resolve(result.data.room)
+    else reject(new Error(result.error))
+  }))
 }
 
 function joinRoom(socket: TestSocket, code: string, name: string, sessionId: string): Promise<RoomSnapshot> {

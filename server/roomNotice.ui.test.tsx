@@ -6,6 +6,7 @@ import { starterFeudPack } from "../src/gameData";
 import type { RoomSnapshot, RoomViewer } from "../src/roomTypes";
 
 const roomClientMock = vi.hoisted(() => ({
+  hasRecoveryIntent: vi.fn(() => false),
   subscribe: vi.fn(),
   createRoom: vi.fn(),
   joinRoom: vi.fn(),
@@ -46,6 +47,7 @@ function roomSnapshot(viewer: RoomViewer): RoomSnapshot {
   return {
     code: "ABCDE",
     phase: "lobby",
+    hostConnection: { status: "connected", recoveryDeadline: null },
     gameRevision: 1,
     config: {
       kind: "feud",

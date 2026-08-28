@@ -5,6 +5,7 @@ import App from "../src/App";
 import type { FeudGameConfig, RoomSnapshot } from "../src/roomTypes";
 
 const roomClientMock = vi.hoisted(() => ({
+  hasRecoveryIntent: vi.fn(() => false),
   subscribe: vi.fn(() => () => undefined),
   subscribeTyping: vi.fn(() => () => undefined),
   subscribeFastMoneyRepeat: vi.fn(() => () => undefined),
@@ -55,6 +56,7 @@ function roomSnapshot(config: FeudGameConfig, phase: "lobby" | "playing"): RoomS
   return {
     code: "ABCDE",
     phase,
+    hostConnection: { status: "connected", recoveryDeadline: null },
     gameRevision: 1,
     config,
     participants: [
