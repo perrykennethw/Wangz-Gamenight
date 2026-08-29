@@ -4784,10 +4784,10 @@ export default function App() {
     [],
   );
   const [screen, setScreen] = useState<Screen>(() =>
-    initialJoinCode
-      ? "join"
-      : roomClient.hasRecoveryIntent()
-        ? "recovery"
+    roomClient.hasRecoveryIntent()
+      ? "recovery"
+      : initialJoinCode
+        ? "join"
         : "home",
   );
   const [config, setConfig] = useState<GameConfig | null>(null);
@@ -4813,7 +4813,9 @@ export default function App() {
       (message) => {
         setRoom(null);
         dispatchRoomNotice({ type: "received", message });
-        setScreen("home");
+        setScreen((current) =>
+          current === "recovery" && initialJoinCode ? "join" : "home",
+        );
       },
       setConnectionStatus,
       (snapshot) => {
@@ -4831,7 +4833,7 @@ export default function App() {
         });
       },
     );
-  }, [presentationCode]);
+  }, [initialJoinCode, presentationCode]);
 
   useEffect(() => {
     if (connectionStatus.state !== "back-online") return;
