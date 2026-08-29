@@ -124,6 +124,63 @@ afterEach(async () => {
 });
 
 describe("room recovery UI", () => {
+  it("prioritizes recovery over an invitation query and restores the existing player screen", async () => {
+    window.history.replaceState({}, "", "/?join=ABCDE");
+
+    await renderApp();
+    expect(document.querySelector(".recovery-shell")).not.toBeNull();
+    expect(document.querySelector("form.join-form")).toBeNull();
+
+    await act(async () => {
+      notifyRecovered?.(playerSnapshot("connected"));
+    });
+
+    expect(document.querySelector(".my-team-card")).not.toBeNull();
+    expect(pageText()).toContain("Avery");
+    expect(document.querySelector("input.code-input")).toBeNull();
+  });
+
+  it("opens a fresh invitation normally when there is no recovery intent", async () => {
+    roomClientMock.hasRecoveryIntent.mockReturnValue(false);
+    window.history.replaceState({}, "", "/?join=abcde");
+
+    await renderApp();
+
+    expect(document.querySelector("form.join-form")).not.toBeNull();
+    expect(document.querySelector<HTMLInputElement>("input.code-input")?.value).toBe("ABCDE");
+  });
+
+  it("falls back to the prefilled invitation when invite recovery expires", async () => {
+    window.history.replaceState({}, "", "/?join=ABCDE");
+    await renderApp();
+
+    await act(async () => {
+      notifyStatus?.({
+        state: "recovery-expired",
+        message: "Recovery expired. That room is no longer available.",
+      });
+      notifyClosed?.("Recovery expired. That room is no longer available.");
+    });
+
+    expect(pageText()).toContain("Recovery expired. That room is no longer available.");
+    expect(document.querySelector("form.join-form")).not.toBeNull();
+    expect(document.querySelector<HTMLInputElement>("input.code-input")?.value).toBe("ABCDE");
+  });
+
+  it("returns home when a recovered invitation room later closes", async () => {
+    window.history.replaceState({}, "", "/?join=ABCDE");
+    await renderApp();
+
+    await act(async () => {
+      notifyRecovered?.(playerSnapshot("connected"));
+      notifyClosed?.("The host closed this room.");
+    });
+
+    expect(pageText()).toContain("The host closed this room.");
+    expect(pageText()).toContain("Pick your game.");
+    expect(document.querySelector("form.join-form")).toBeNull();
+  });
+
   it("restores the player screen and reports transport and moderator recovery states", async () => {
     await renderApp();
     expect(pageText()).toContain("Rejoining");
