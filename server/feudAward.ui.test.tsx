@@ -2,7 +2,13 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import App from "../src/App";
-import type { FeudGameConfig, RoomSnapshot } from "../src/roomTypes";
+import type { FeudCommand, FeudGameConfig, RoomSnapshot } from "../src/roomTypes";
+import {
+  applyFeudCommand,
+  createFeudGame,
+  viewFeudGame,
+  type FeudGameState,
+} from "./feud";
 
 const roomClientMock = vi.hoisted(() => ({
   hasRecoveryIntent: vi.fn(() => false),
@@ -14,6 +20,7 @@ const roomClientMock = vi.hoisted(() => ({
   leaveRoom: vi.fn(),
   prepareNextGame: vi.fn(),
   gameAction: vi.fn(),
+  feudAction: vi.fn(),
   chooseTeam: vi.fn(),
   sendMessage: vi.fn(),
   pressBuzzer: vi.fn(),
@@ -40,6 +47,7 @@ vi.mock("../src/roomClient", () => ({ roomClient: roomClientMock }));
 
 let root: Root | null = null;
 let latestConfig: FeudGameConfig | null = null;
+let authoritativeGame: FeudGameState | null = null;
 const presenterStates: unknown[] = [];
 
 class TestBroadcastChannel {
@@ -102,7 +110,9 @@ function roomSnapshot(config: FeudGameConfig, phase: "lobby" | "playing"): RoomS
       deadline: null,
     },
     viewer: { role: "host" },
-    game: null,
+    game: phase === "playing" && authoritativeGame
+      ? viewFeudGame(authoritativeGame, config)
+      : null,
   };
 }
 
@@ -199,6 +209,7 @@ beforeEach(() => {
   Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
   latestConfig = null;
+  authoritativeGame = null;
   presenterStates.length = 0;
   vi.clearAllMocks();
   roomClientMock.subscribe.mockReturnValue(() => undefined);
@@ -210,6 +221,14 @@ beforeEach(() => {
   });
   roomClientMock.startGame.mockImplementation(async () => {
     if (!latestConfig) throw new Error("The game config is unavailable.");
+    authoritativeGame = createFeudGame(latestConfig);
+    return roomSnapshot(latestConfig, "playing");
+  });
+  roomClientMock.feudAction.mockImplementation(async (command: FeudCommand) => {
+    if (!latestConfig || !authoritativeGame) throw new Error("The game is unavailable.");
+    const result = applyFeudCommand(authoritativeGame, latestConfig, command);
+    if (!result.ok) throw new Error(result.error);
+    authoritativeGame = result.state;
     return roomSnapshot(latestConfig, "playing");
   });
   roomClientMock.endFeudQuestion.mockResolvedValue(undefined);
@@ -313,9 +332,11 @@ describe("Family Feud round awards", () => {
     expect(pageText()).toContain("Question 2 of 8");
     expect(pageText()).toContain("Name something that always seems to disappear at a party.");
     expect(document.querySelector('[aria-label="The Leftovers: 0 points"]')).not.toBeNull();
-    expect(roomClientMock.prepareNextFeudQuestion).toHaveBeenCalledOnce();
-    expect(roomClientMock.endFeudQuestion).not.toHaveBeenCalled();
-    expect(roomClientMock.resetBuzzer).not.toHaveBeenCalled();
+    expect(roomClientMock.feudAction).toHaveBeenCalledWith({
+      type: "navigate-question",
+      questionIndex: 0,
+      direction: 1,
+    });
 
     const questionTwo = latestConfig?.pack.questions[1];
     const latestPresenterState = presenterStates
@@ -417,15 +438,16 @@ describe("Family Feud round awards", () => {
     expect(pageText()).toContain("34 points awarded to The Leftovers");
     expect(button("Next question ↗")).toBeTruthy();
     expect(document.querySelector('[aria-label="The Leftovers: 34 points"]')).not.toBeNull();
-    expect(roomClientMock.endFeudQuestion).toHaveBeenCalledOnce();
-    expect(roomClientMock.nextBuzzerPair).not.toHaveBeenCalled();
-    expect(roomClientMock.advanceFeudTurn).toHaveBeenCalledOnce();
+    expect(roomClientMock.feudAction).toHaveBeenCalledWith({
+      type: "award-round",
+      questionIndex: 0,
+      team: "one",
+    });
     expect(button("Add strike X").disabled).toBe(true);
 
     await click("Reveal answer 2: Hide the clutter, 21 points");
     expect(document.querySelector('[aria-label="The Leftovers: 34 points"]')).not.toBeNull();
     expect(button("Hide the clutter, 21 points")).toBeTruthy();
-    expect(roomClientMock.advanceFeudTurn).toHaveBeenCalledOnce();
 
     await act(async () => {
       window.dispatchEvent(new KeyboardEvent("keydown", { key: "a" }));
@@ -444,7 +466,10 @@ describe("Family Feud round awards", () => {
     expect(pageText()).toContain("Name something that always seems to disappear at a party.");
     expect(pageText()).toContain("Award 0 points");
     expect(document.querySelector('[aria-label="The Leftovers: 34 points"]')).not.toBeNull();
-    expect(roomClientMock.nextBuzzerPair).toHaveBeenCalledOnce();
+    expect(roomClientMock.feudAction).toHaveBeenCalledWith({
+      type: "finish-round",
+      questionIndex: 0,
+    });
   });
 
   it("delays a winning modal until the moderator finishes the board", async () => {

@@ -183,6 +183,25 @@ export interface SpinSolveView {
   canUndo: boolean;
 }
 
+export interface FeudQuestionResolutionView {
+  team: TeamId;
+  points: number;
+  round: number;
+  advanced: boolean;
+}
+
+export interface FeudGameView {
+  kind: "feud";
+  round: number;
+  activeQuestionIndex: number;
+  revealed: number[];
+  strikes: number;
+  resolution: FeudQuestionResolutionView | null;
+  scores: Record<TeamId, number>;
+  roundPot: number;
+  winnerTeam: TeamId | null;
+}
+
 export type FastMoneyPhase =
   | "selecting"
   | "ready-one"
@@ -253,7 +272,7 @@ export interface FastMoneyView {
   message: string;
 }
 
-export type GameView = SpinSolveView | FastMoneyView;
+export type GameView = FeudGameView | SpinSolveView | FastMoneyView;
 
 export interface RoomSnapshot {
   code: string;
@@ -296,6 +315,14 @@ export type SpinSolveCommand =
   | { type: "bonus-solve"; solution: string }
   | { type: "finish-bonus" }
   | { type: "undo" };
+
+export type FeudCommand =
+  | { type: "reveal-answer"; questionIndex: number; answerIndex: number }
+  | { type: "set-strikes"; questionIndex: number; strikes: number }
+  | { type: "award-round"; questionIndex: number; team: TeamId }
+  | { type: "finish-round"; questionIndex: number }
+  | { type: "navigate-question"; questionIndex: number; direction: -1 | 1 }
+  | { type: "set-score"; team: TeamId; score: number };
 
 export type FastMoneyCommand =
   | { type: "start"; team: TeamId }
@@ -369,6 +396,10 @@ export interface ClientToServerEvents {
   "game:start": (reply: (result: RoomResult<RoomSnapshot>) => void) => void;
   "game:action": (
     command: SpinSolveCommand,
+    reply: (result: RoomResult<RoomSnapshot>) => void,
+  ) => void;
+  "feud:action": (
+    command: FeudCommand,
     reply: (result: RoomResult<RoomSnapshot>) => void,
   ) => void;
   "fast-money:action": (

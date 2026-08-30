@@ -9,6 +9,7 @@ import type {
   Participant,
   RoomSnapshot,
   RoomViewer,
+  TeamId,
 } from "../src/roomTypes";
 
 const roomClientMock = vi.hoisted(() => ({
@@ -22,6 +23,7 @@ const roomClientMock = vi.hoisted(() => ({
   startGame: vi.fn(),
   prepareNextGame: vi.fn(),
   gameAction: vi.fn(),
+  feudAction: vi.fn(),
   chooseTeam: vi.fn(),
   sendMessage: vi.fn(),
   pressBuzzer: vi.fn(),
@@ -82,11 +84,13 @@ function snapshot({
   participants = activePlayers,
   phase = "playing",
   messages = [],
+  winnerTeam = null,
 }: {
   viewer: RoomViewer;
   participants?: Participant[];
   phase?: "lobby" | "playing";
   messages?: ChatMessage[];
+  winnerTeam?: TeamId | null;
 }): RoomSnapshot {
   const viewerTeam = viewer.role === "player" ? viewer.team : null;
   return {
@@ -131,7 +135,19 @@ function snapshot({
       deadline: null,
     },
     viewer,
-    game: null,
+    game: phase === "playing"
+      ? {
+          kind: "feud",
+          round: 1,
+          activeQuestionIndex: 0,
+          revealed: [],
+          strikes: 0,
+          resolution: null,
+          scores: { one: winnerTeam === "one" ? 300 : 0, two: winnerTeam === "two" ? 300 : 0 },
+          roundPot: 0,
+          winnerTeam,
+        }
+      : null,
   };
 }
 
@@ -311,5 +327,22 @@ describe("mid-session player joining", () => {
     expect(pageText()).not.toContain("Your team is set.");
     expect(document.querySelector('[aria-label="Buzzer status"]')).not.toBeNull();
     expect(document.querySelector('[aria-label="Comets private chat"]')).not.toBeNull();
+
+    await act(async () => {
+      deliverSnapshot?.(snapshot({
+        viewer: { role: "player", participantId: "waiting-player", team: "one" },
+        participants: [
+          ...activePlayers,
+          { ...assignedWaiting, status: "active" },
+        ],
+        messages: [teamMessage],
+        winnerTeam: "one",
+      }));
+    });
+
+    expect(pageText()).toContain("Game complete");
+    expect(pageText()).toContain("Comets won with 300 points.");
+    expect(pageText()).toContain("win the night!");
+    expect(pageText()).not.toContain("Game in progress");
   });
 });

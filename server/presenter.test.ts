@@ -71,7 +71,17 @@ const room: RoomSnapshot = {
     deadline: 26_000,
   },
   viewer: { role: 'host' },
-  game: null,
+  game: {
+    kind: 'feud',
+    round: 1,
+    activeQuestionIndex: 0,
+    revealed: [0],
+    strikes: 1,
+    resolution: null,
+    scores: { one: 34, two: 20 },
+    roundPot: 34,
+    winnerTeam: null,
+  },
 }
 
 assert.equal(presenterRoomCodeFromSearch('?present=abc12'), 'ABC12')
@@ -82,16 +92,9 @@ const lobby = createLobbyPresentation(room, 2)
 const feud = createFeudPresentation({
   room,
   config,
-  round: 1,
-  multiplier: 1,
-  question: config.pack.questions[0],
-  revealed: [0],
-  strikes: 1,
   wrongAnswerCueRevision: 4,
-  scores: [34, 20],
-  roundPot: 34,
-  winner: null,
 })
+assert.ok(feud)
 
 for (const state of [lobby, feud]) {
   const serialized = JSON.stringify(state)

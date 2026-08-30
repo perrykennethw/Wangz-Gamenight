@@ -50,6 +50,7 @@ import {
   type FastMoneyState,
 } from './fastMoney.js'
 import { writeRoomConnectionDiagnostic } from './roomDiagnostics.js'
+import { applyFeudCommand, createFeudGame, viewFeudGame, type FeudGameState } from './feud.js'
 
 interface Connection {
   role: 'host' | 'player'
@@ -86,7 +87,7 @@ interface Room {
     controllingTeam: TeamId | null
   }
   feudTurns: FeudTurnState
-  game: SpinSolveState | FastMoneyState | null
+  game: FeudGameState | SpinSolveState | FastMoneyState | null
   buzzer: BuzzerState
   timer: SharedTimerState
   timerGeneration: number
@@ -357,13 +358,15 @@ function snapshotFor(room: Room, socketId: string): RoomSnapshot {
     game: room.game
       ? room.game.kind === 'spin-solve'
         ? viewSpinSolveGame(room.game)
-        : room.config.kind === 'feud' && room.config.pack.fastMoney
-          ? viewFastMoney(room.game, room.config.pack.fastMoney, activeParticipants(room), {
+        : room.game.kind === 'feud' && room.config.kind === 'feud'
+          ? viewFeudGame(room.game, room.config)
+          : room.game.kind === 'fast-money' && room.config.kind === 'feud' && room.config.pack.fastMoney
+            ? viewFastMoney(room.game, room.config.pack.fastMoney, activeParticipants(room), {
               role: connection.role,
               participantId: participant?.id ?? null,
               team: participant?.status === 'active' ? participant.team : null,
             })
-          : null
+            : null
       : null,
   }
 }
@@ -1240,6 +1243,81 @@ io.on('connection', (socket) => {
     syncRoom(room)
   })
 
+  socket.on('feud:action', (command, reply) => {
+    const room = roomFor(socket.id)
+    if (!room || room.hostSocketId !== socket.id) {
+      return reply({ ok: false, error: 'Only the host can control the Family Feud board.' })
+    }
+    if (room.phase !== 'playing' || room.config.kind !== 'feud' || room.game?.kind !== 'feud') {
+      return reply({ ok: false, error: 'Start a regular Family Feud game before changing the board.' })
+    }
+
+    const before = viewFeudGame(room.game, room.config)
+    const result = applyFeudCommand(room.game, room.config, command)
+    if (!result.ok) return reply(result)
+
+    room.game = result.state
+    const after = viewFeudGame(room.game, room.config)
+
+    if (
+      command.type === 'reveal-answer'
+      && !before.revealed.includes(command.answerIndex)
+      && after.revealed.includes(command.answerIndex)
+      && room.feudTurns.activeTeam
+      && before.strikes < 3
+    ) {
+      room.feudTurns = advanceFeudTurn(room.feudTurns, activeConnectedParticipantIds(room))
+    }
+
+    if (
+      command.type === 'set-strikes'
+      && after.strikes > before.strikes
+      && before.strikes < 2
+      && room.feudTurns.activeTeam
+    ) {
+      room.feudTurns = advanceFeudTurn(room.feudTurns, activeConnectedParticipantIds(room))
+    }
+
+    if (command.type === 'award-round' && !before.resolution && after.resolution) {
+      endFeudQuestion(room)
+    }
+
+    if (command.type === 'finish-round' && after.winnerTeam && !before.winnerTeam) {
+      endFeudQuestion(room)
+    }
+
+    if (command.type === 'finish-round' && after.activeQuestionIndex !== before.activeQuestionIndex) {
+      endFeudQuestion(room)
+      for (const participant of room.participants.values()) {
+        if (participant.status === 'waiting' && participant.team) participant.status = 'active'
+      }
+      room.buzzer = {
+        status: 'idle',
+        winner: null,
+        representatives: {
+          one: nextRepresentative(room, 'one'),
+          two: nextRepresentative(room, 'two'),
+        },
+      }
+      seedRoomFeudTurns(room)
+    }
+
+    if (command.type === 'navigate-question' && after.activeQuestionIndex !== before.activeQuestionIndex) {
+      endFeudQuestion(room)
+      room.buzzer = { ...room.buzzer, status: 'idle', winner: null }
+      if (command.direction === 1) {
+        for (const participant of room.participants.values()) {
+          if (participant.status === 'waiting' && participant.team) participant.status = 'active'
+        }
+      }
+      repairRoomFeudTurns(room)
+    }
+
+    const snapshot = snapshotFor(room, socket.id)
+    reply({ ok: true, data: snapshot })
+    syncRoom(room)
+  })
+
   socket.on('game:start', (reply) => {
     const room = roomFor(socket.id)
     if (!room || room.hostSocketId !== socket.id) return reply({ ok: false, error: 'Only the host can start the game.' })
@@ -1267,6 +1345,8 @@ io.on('connection', (socket) => {
     )
     if (room.config.kind === 'spin-solve') {
       room.game = createSpinSolveGame(room.config, { random: Math.random, now: Date.now })
+    } else {
+      room.game = createFeudGame(room.config)
     }
     const snapshot = snapshotFor(room, socket.id)
     reply({ ok: true, data: snapshot })
@@ -1333,7 +1413,7 @@ io.on('connection', (socket) => {
     if (command.type === 'start') {
       if (connection.role !== 'host') return reply({ ok: false, error: 'Only the host can start Fast Money.' })
       if (!isTeamId(command.team)) return reply({ ok: false, error: 'Choose the team that won the main game.' })
-      if (room.game) return reply({ ok: false, error: 'Fast Money has already started.' })
+      if (room.game?.kind !== 'feud') return reply({ ok: false, error: 'Fast Money has already started.' })
       if (playersForTeam(room, command.team).length < 2) {
         return reply({ ok: false, error: 'The winning team needs two connected players for Fast Money.' })
       }
