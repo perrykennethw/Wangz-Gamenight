@@ -46,6 +46,7 @@ import {
   isLocalRoomInviteUrl,
   joinRoomCodeFromSearch,
 } from "./roomInvite";
+import { useChatReadState } from "./chatReadState";
 import { roomNoticeReducer } from "./roomNotice";
 import { PresenterWrongAnswerCue } from "./PresenterWrongAnswerCue";
 import {
@@ -1533,6 +1534,11 @@ interface TeamChatProps {
   locked?: boolean;
   lockReason?: string | null;
   moderator?: boolean;
+  unreadCount?: number;
+  onReadLatest?: () => void;
+  announcement?: string;
+  observeViewport?: boolean;
+  renderAnnouncement?: boolean;
 }
 
 function typingSummary(members: ChatTypingUpdate[]): string {
@@ -1553,6 +1559,11 @@ export function TeamChat({
   locked = false,
   lockReason,
   moderator = false,
+  unreadCount = 0,
+  onReadLatest,
+  announcement = "",
+  observeViewport = false,
+  renderAnnouncement = true,
 }: TeamChatProps) {
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -1563,7 +1574,10 @@ export function TeamChat({
   const typingAnnounced = useRef(false);
   const lastTypingSignalAt = useRef(0);
   const feedRef = useRef<HTMLDivElement>(null);
+  const chatRef = useRef<HTMLElement>(null);
   const shouldFollowMessages = useRef(true);
+  const [isNearBottom, setIsNearBottom] = useState(true);
+  const [isInViewport, setIsInViewport] = useState(!observeViewport);
   const wasActive = useRef(false);
   const previousTeam = useRef(team);
   const inputId = `team-message-${team}-${participantId}`;
@@ -1574,8 +1588,29 @@ export function TeamChat({
     if (!feed) return;
     const distanceFromBottom =
       feed.scrollHeight - feed.scrollTop - feed.clientHeight;
-    shouldFollowMessages.current = distanceFromBottom <= 48;
+    const nearBottom = distanceFromBottom <= 48;
+    shouldFollowMessages.current = nearBottom;
+    setIsNearBottom(nearBottom);
+    if (nearBottom && active && isInViewport) onReadLatest?.();
   };
+
+  useEffect(() => {
+    if (!observeViewport) {
+      setIsInViewport(true);
+      return;
+    }
+    const chat = chatRef.current;
+    if (!chat || typeof IntersectionObserver === "undefined") {
+      setIsInViewport(true);
+      return;
+    }
+
+    const observer = new IntersectionObserver(([entry]) => {
+      setIsInViewport(entry.isIntersecting);
+    }, { threshold: 0.1 });
+    observer.observe(chat);
+    return () => observer.disconnect();
+  }, [observeViewport, team]);
 
   useLayoutEffect(() => {
     const feed = feedRef.current;
@@ -1590,6 +1625,8 @@ export function TeamChat({
     if (justOpened || teamChanged || shouldFollowMessages.current || sentByMe) {
       feed.scrollTop = feed.scrollHeight;
       shouldFollowMessages.current = true;
+      setIsNearBottom(true);
+      if (isInViewport) onReadLatest?.();
     }
   }, [
     active,
@@ -1598,7 +1635,22 @@ export function TeamChat({
     newestMessage?.senderId,
     participantId,
     team,
+    isInViewport,
+    onReadLatest,
   ]);
+
+  useEffect(() => {
+    if (active && isInViewport && shouldFollowMessages.current) onReadLatest?.();
+  }, [active, isInViewport, onReadLatest]);
+
+  const jumpToLatest = () => {
+    const feed = feedRef.current;
+    if (!feed) return;
+    feed.scrollTop = feed.scrollHeight;
+    shouldFollowMessages.current = true;
+    setIsNearBottom(true);
+    onReadLatest?.();
+  };
 
   const stopTyping = () => {
     if (typingStopTimer.current !== null) {
@@ -1685,9 +1737,15 @@ export function TeamChat({
 
   return (
     <section
+      ref={chatRef}
       className={`team-chat team-chat--${team}`}
       aria-label={`${teamLabel} private chat`}
     >
+      {renderAnnouncement ? (
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {announcement}
+        </p>
+      ) : null}
       <header>
         <div>
           <span>
@@ -1695,12 +1753,18 @@ export function TeamChat({
           </span>
           <h2>{teamLabel}</h2>
         </div>
-        <span className="lock-label">◆ Team + host</span>
+        <div className="chat-header-status">
+          {unreadCount > 0 ? (
+            <b aria-label={`${unreadCount} unread message${unreadCount === 1 ? "" : "s"}`}>
+              {unreadCount > 99 ? "99+" : unreadCount} new
+            </b>
+          ) : null}
+          <span className="lock-label">◆ Team + host</span>
+        </div>
       </header>
       <div
         ref={feedRef}
         className="chat-feed"
-        aria-live="polite"
         onScroll={updateFollowPreference}
       >
         {messages.length === 0 ? (
@@ -1727,6 +1791,11 @@ export function TeamChat({
           ))
         )}
       </div>
+      {unreadCount > 0 && !isNearBottom ? (
+        <button className="chat-jump-latest" type="button" onClick={jumpToLatest}>
+          {unreadCount} new message{unreadCount === 1 ? "" : "s"} · Jump to latest
+        </button>
+      ) : null}
       {typingMembers.length > 0 && (
         <div className="chat-typing" role="status" aria-live="polite">
           <span className="chat-typing__avatars" aria-hidden="true">
@@ -1788,7 +1857,32 @@ export function TeamChat({
   );
 }
 
-function HostHuddles({ room }: { room: RoomSnapshot }) {
+function HostTeamChat({ room, team }: { room: RoomSnapshot; team: TeamId }) {
+  const messages = room.teamChats[team] ?? [];
+  const readState = useChatReadState({
+    chatKey: `${room.code}:host:${team}`,
+    messages,
+    viewerId: "host",
+    teamLabel: teamName(room, team),
+  });
+
+  return (
+    <TeamChat
+      team={team}
+      teamLabel={teamName(room, team)}
+      messages={messages}
+      participantId="host"
+      moderator
+      unreadCount={readState.unreadCount}
+      onReadLatest={readState.markLatestRead}
+      announcement={readState.announcement}
+      observeViewport
+      onSend={(text) => roomClient.sendMessage(text, team).then(() => undefined)}
+    />
+  );
+}
+
+export function HostHuddles({ room }: { room: RoomSnapshot }) {
   return (
     <section className="host-huddles" aria-label="Host team huddles">
       <header>
@@ -1800,16 +1894,10 @@ function HostHuddles({ room }: { room: RoomSnapshot }) {
       </header>
       <div>
         {(["one", "two"] as TeamId[]).map((team) => (
-          <TeamChat
+          <HostTeamChat
             key={team}
+            room={room}
             team={team}
-            teamLabel={teamName(room, team)}
-            messages={room.teamChats[team] ?? []}
-            participantId="host"
-            moderator
-            onSend={(text) =>
-              roomClient.sendMessage(text, team).then(() => undefined)
-            }
           />
         ))}
       </div>
@@ -2555,7 +2643,7 @@ function LobbyAvatarEditor({ room, participantId }: { room: RoomSnapshot; partic
   );
 }
 
-function PlayerChatDrawer({
+export function PlayerChatDrawer({
   room,
   team,
   participantId,
@@ -2572,11 +2660,14 @@ function PlayerChatDrawer({
     window.matchMedia("(max-width: 760px)").matches,
   );
   const [open, setOpen] = useState(() => !isMobile);
-  const [seenMessageCount, setSeenMessageCount] = useState(
-    room.messages.length,
-  );
   const locked = room.chat.lockedTeam === team;
-  const unreadCount = Math.max(0, room.messages.length - seenMessageCount);
+  const readState = useChatReadState({
+    chatKey: `${room.code}:${participantId}:${team}`,
+    messages: room.messages,
+    viewerId: participantId,
+    teamLabel: teamName(room, team),
+  });
+  const unreadCount = readState.unreadCount;
   const contentId = `player-team-chat-${team}`;
 
   useEffect(() => {
@@ -2594,24 +2685,11 @@ function PlayerChatDrawer({
     if (isMobile) setOpen(false);
   }, [isMobile, phaseKey]);
 
-  useEffect(() => {
-    if (open) setSeenMessageCount(room.messages.length);
-  }, [open, room.messages.length]);
-
-  if (locked) {
-    return (
-      <aside className="player-chat-locked" role="status">
-        <span aria-hidden="true">◆</span>
-        <div>
-          <strong>Team huddle paused</strong>
-          <small>{room.chat.reason ?? "Chat reopens after this question."}</small>
-        </div>
-      </aside>
-    );
-  }
-
   return (
     <section className={`player-chat-drawer ${open ? "is-open" : ""}`}>
+      <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {readState.announcement}
+      </p>
       <button
         className="player-chat-drawer__toggle"
         type="button"
@@ -2639,6 +2717,11 @@ function PlayerChatDrawer({
           participantId={participantId}
           onSend={onSendMessage}
           active={open}
+          locked={locked}
+          lockReason={room.chat.reason}
+          unreadCount={unreadCount}
+          onReadLatest={readState.markLatestRead}
+          renderAnnouncement={false}
         />
       </div>
     </section>
