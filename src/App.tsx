@@ -18,12 +18,6 @@ import {
 import { FeudGameBuilder, saveFeudGamePackDraft } from "./FeudGameBuilder";
 import { GamePackError, parseFeudGamePack } from "./feudGamePack";
 import {
-  activeFeudQuestionIndex,
-  activeFeudQuestionProgress,
-  createFeudQuestionNavigationState,
-  feudQuestionNavigationReducer,
-} from "./feudQuestionNavigation";
-import {
   GAME_AUDIO_CUE_LABELS,
   gameAudio,
   type GameAudioCue,
@@ -71,6 +65,7 @@ import type {
   ChatMessage,
   ChatTypingUpdate,
   FeudGameConfig,
+  FeudCommand,
   FeudGamePack,
   GameConfig,
   Participant,
@@ -92,14 +87,7 @@ type Screen =
   | "host-lobby"
   | "player-room"
   | "game";
-type TeamIndex = 0 | 1;
 type ScoreAccent = "gold" | "coral";
-
-interface Winner {
-  name: string;
-  score: number;
-  team: TeamId;
-}
 
 interface BoltProps {
   size?: number;
@@ -166,6 +154,7 @@ interface GameProps {
   room: RoomSnapshot;
   moderatorShortcutsEnabled: boolean;
   onModeratorShortcutsEnabledChange: (enabled: boolean) => void;
+  onAction: (command: FeudCommand) => Promise<RoomSnapshot>;
   onExit: () => void;
   onReplay: () => Promise<void>;
   onChangeGame: () => Promise<void>;
@@ -2680,6 +2669,31 @@ function PlayerFeudExperience({
   const buzzerIsPrimary = room.buzzer.status === "armed" && isRepresentative;
   const playPassIsPrimary = room.playPass.status === "open";
   const answeringIsPrimary = Boolean(room.feudTurns.activeTeam) && !playPassIsPrimary;
+  const feudGame = room.game?.kind === "feud" ? room.game : null;
+  const winnerTeam = feudGame?.winnerTeam ?? null;
+
+  if (winnerTeam) {
+    return (
+      <div className="player-feud-experience">
+        <section className="waiting-player-card" role="status">
+          <p className="eyebrow">That’s the game</p>
+          <h1>
+            {teamName(room, winnerTeam)}
+            <br />
+            <em>win the night!</em>
+          </h1>
+          <p>Final score: {feudGame?.scores[winnerTeam] ?? 0} points.</p>
+        </section>
+        <PlayerChatDrawer
+          room={room}
+          team={team}
+          participantId={participantId}
+          onSendMessage={onSendMessage}
+          phaseKey={phaseKey}
+        />
+      </div>
+    );
+  }
 
   const buzzer = buzzerIsPrimary ? (
     <section className={`player-buzzer-action player-buzzer-action--${team}`}>
@@ -2746,6 +2760,33 @@ function WaitingPlayerExperience({
   phaseKey: string;
 }) {
   const isFastMoney = room.game?.kind === "fast-money";
+  const feudGame = room.game?.kind === "feud" ? room.game : null;
+  const winnerTeam = feudGame?.winnerTeam ?? null;
+
+  if (winnerTeam) {
+    return (
+      <div className="waiting-player-experience">
+        <section className="waiting-player-card" role="status">
+          <p className="eyebrow">That’s the game</p>
+          <h1>
+            {teamName(room, winnerTeam)}
+            <br />
+            <em>win the night!</em>
+          </h1>
+          <p>Final score: {feudGame?.scores[winnerTeam] ?? 0} points.</p>
+        </section>
+        {team && (
+          <PlayerChatDrawer
+            room={room}
+            team={team}
+            participantId={participantId}
+            onSendMessage={onSendMessage}
+            phaseKey={phaseKey}
+          />
+        )}
+      </div>
+    );
+  }
 
   return (
     <div className="waiting-player-experience">
@@ -2804,7 +2845,7 @@ function PlayerRoom({
     ? `spin:${room.game.phase}:${room.game.activeTeam}:${room.game.spinId}`
     : room.game?.kind === "fast-money"
       ? `fast-money:${room.game.phase}:${room.game.viewerRole}:${room.game.isIsolated}:${room.game.currentQuestionIndex ?? "none"}`
-      : `feud:${room.playPass.status}:${room.buzzer.status}:${room.buzzer.winner?.participantId ?? "none"}:${room.feudTurns.activeTeam ?? "none"}:${viewerTeam ? room.feudTurns.teams[viewerTeam].currentPlayerId ?? "none" : "none"}`;
+      : `feud:${room.game?.kind === "feud" ? room.game.winnerTeam ?? "playing" : "regular"}:${room.playPass.status}:${room.buzzer.status}:${room.buzzer.winner?.participantId ?? "none"}:${room.feudTurns.activeTeam ?? "none"}:${viewerTeam ? room.feudTurns.teams[viewerTeam].currentPlayerId ?? "none" : "none"}`;
 
   useEffect(() => {
     if (room.phase !== "playing") {
@@ -2879,9 +2920,15 @@ function PlayerRoom({
         {room.phase === "playing" && (
           <div className="game-live-banner">
             <span className="live-dot" />
-            <strong>Game in progress</strong>
+            <strong>
+              {room.game?.kind === "feud" && room.game.winnerTeam
+                ? "Game complete"
+                : "Game in progress"}
+            </strong>
             <span>
-              {viewerIsWaiting
+              {room.game?.kind === "feud" && room.game.winnerTeam
+                ? `${teamName(room, room.game.winnerTeam)} won with ${room.game.scores[room.game.winnerTeam]} points.`
+                : viewerIsWaiting
                 ? viewerTeam
                   ? `The host assigned your team. You’ll join ${room.game?.kind === "fast-money" ? "after Fast Money" : "on the next question"}.`
                   : "The host will assign your team before you enter play."
@@ -3878,35 +3925,25 @@ function Game({
   room,
   moderatorShortcutsEnabled,
   onModeratorShortcutsEnabledChange,
+  onAction,
   onExit,
   onReplay,
   onChangeGame,
 }: GameProps) {
-  const [round, setRound] = useState(1);
-  const [questionNavigation, dispatchQuestionNavigation] = useReducer(
-    feudQuestionNavigationReducer,
-    config.pack.questions.map((question) => question.id),
-    createFeudQuestionNavigationState,
-  );
-  const [scores, setScores] = useState<[number, number]>([0, 0]);
-  const [winner, setWinner] = useState<Winner | null>(null);
   const [fastMoneyError, setFastMoneyError] = useState("");
   const [questionNavigationError, setQuestionNavigationError] = useState("");
   const [isNavigatingQuestion, setIsNavigatingQuestion] = useState(false);
+  const [isFinishingRound, setIsFinishingRound] = useState(false);
   const [wrongAnswerCueRevision, setWrongAnswerCueRevision] = useState(0);
-  const awardedQuestionIds = useRef(new Set<string>());
-  const roundFinishing = useRef(false);
-
-  const questionIndex = activeFeudQuestionIndex(questionNavigation);
-  const questionProgress = activeFeudQuestionProgress(questionNavigation);
-  const { revealed, strikes, resolution: roundResolution } = questionProgress;
+  const feudGame = room.game?.kind === "feud" ? room.game : null;
+  const questionIndex = feudGame?.activeQuestionIndex ?? 0;
+  const revealed = feudGame?.revealed ?? [];
+  const strikes = feudGame?.strikes ?? 0;
+  const roundResolution = feudGame?.resolution ?? null;
+  const scores = feudGame?.scores ?? { one: 0, two: 0 };
   const hasPreviousQuestion = questionIndex > 0;
   const hasNextQuestion = questionIndex < config.pack.questions.length - 1;
   const pendingRoundAdvance = Boolean(roundResolution && !roundResolution.advanced);
-
-  useEffect(() => {
-    if (!pendingRoundAdvance) roundFinishing.current = false;
-  }, [pendingRoundAdvance]);
 
   useEffect(() => roomClient.subscribeFastMoneyRepeat(() => {
     void gameAudio.play("repeat-answer");
@@ -3922,148 +3959,138 @@ function Game({
   }, [buzzerWinnerId]);
 
   const question = config.pack.questions[questionIndex];
-  const displayRound = roundResolution?.round ?? round;
+  const displayRound = roundResolution?.round ?? feudGame?.round ?? 1;
   const multiplier = multiplierForRound(displayRound);
-  const roundPot = useMemo(
-    () =>
-      revealed.reduce(
-        (sum, index) => sum + question.answers[index].points * multiplier,
-        0,
-      ),
-    [revealed, question, multiplier],
-  );
+  const roundPot = feudGame?.roundPot ?? 0;
+  const winner = feudGame?.winnerTeam
+    ? {
+        name: feudGame.winnerTeam === "one" ? config.teamOne : config.teamTwo,
+        score: feudGame.scores[feudGame.winnerTeam],
+        team: feudGame.winnerTeam,
+      }
+    : null;
   const presentation = useMemo(
     () => room.game?.kind === "fast-money"
       ? createFastMoneyPresentation(room)
-      : createFeudPresentation({
+      : feudGame
+        ? createFeudPresentation({
           room,
           config,
-          round: displayRound,
-          multiplier,
-          question,
-          revealed,
-          strikes,
           wrongAnswerCueRevision,
-          scores,
-          roundPot,
-          winner,
-        }),
+        })
+        : null,
     [
       room,
       config,
-      displayRound,
-      multiplier,
-      question,
-      revealed,
-      strikes,
+      feudGame,
       wrongAnswerCueRevision,
-      scores,
-      roundPot,
-      winner,
     ],
   );
   usePresentationPublisher(presentation);
 
   const revealAnswer = (index: number) => {
+    if (!feudGame) return;
     if (revealed.includes(index)) {
       void gameAudio.play("repeat-answer");
       return;
     }
     if (roundResolution?.advanced) return;
-    void gameAudio.play("answer-reveal");
-    dispatchQuestionNavigation({ type: "reveal", answerIndex: index });
-    if (!roundResolution && room.feudTurns.activeTeam && strikes < 3) {
-      void roomClient.advanceFeudTurn().catch(() => undefined);
-    }
+    setQuestionNavigationError("");
+    void onAction({
+      type: "reveal-answer",
+      questionIndex: feudGame.activeQuestionIndex,
+      answerIndex: index,
+    }).then(() => gameAudio.play("answer-reveal"))
+      .catch((cause) => setQuestionNavigationError(
+        cause instanceof Error ? cause.message : "Could not reveal that answer.",
+      ));
   };
 
   const addStrike = () => {
-    if (roundResolution) return;
-    void gameAudio.play("wrong-answer");
-    setWrongAnswerCueRevision((current) => current + 1);
-    dispatchQuestionNavigation({ type: "set-strikes", strikes: strikes + 1 });
-    if (room.feudTurns.activeTeam && strikes < 2) {
-      void roomClient.advanceFeudTurn().catch(() => undefined);
-    }
+    if (!feudGame || roundResolution) return;
+    setQuestionNavigationError("");
+    void onAction({
+      type: "set-strikes",
+      questionIndex: feudGame.activeQuestionIndex,
+      strikes: strikes + 1,
+    }).then(() => {
+      void gameAudio.play("wrong-answer");
+      setWrongAnswerCueRevision((current) => current + 1);
+    }).catch((cause) => setQuestionNavigationError(
+      cause instanceof Error ? cause.message : "Could not add that strike.",
+    ));
   };
 
-  const awardRound = (teamIndex: TeamIndex) => {
-    if (
-      awardedQuestionIds.current.has(question.id)
-      || roundResolution
-      || roundPot === 0
-    ) return;
-    awardedQuestionIds.current.add(question.id);
-    void roomClient.endFeudQuestion();
-    const nextScores: [number, number] = [scores[0], scores[1]];
-    nextScores[teamIndex] += roundPot;
-    setScores(nextScores);
-    dispatchQuestionNavigation({
-      type: "award",
-      teamIndex,
-      points: roundPot,
-      round,
-    });
-    if (nextScores[teamIndex] < config.winningScore) {
-      void gameAudio.play("round-win");
-    }
+  const setStrikes = (nextStrikes: number) => {
+    if (!feudGame || roundResolution) return;
+    setQuestionNavigationError("");
+    void onAction({
+      type: "set-strikes",
+      questionIndex: feudGame.activeQuestionIndex,
+      strikes: nextStrikes,
+    }).catch((cause) => setQuestionNavigationError(
+      cause instanceof Error ? cause.message : "Could not change the strike count.",
+    ));
+  };
+
+  const awardRound = (team: TeamId) => {
+    if (!feudGame || roundResolution || roundPot === 0) return;
+    setQuestionNavigationError("");
+    void onAction({
+      type: "award-round",
+      questionIndex: feudGame.activeQuestionIndex,
+      team,
+    }).then((snapshot) => {
+      if (snapshot.game?.kind === "feud" && snapshot.game.scores[team] < config.winningScore) {
+        void gameAudio.play("round-win");
+      }
+    }).catch((cause) => setQuestionNavigationError(
+      cause instanceof Error ? cause.message : "Could not award that round.",
+    ));
   };
 
   const finishRound = async () => {
-    if (!roundResolution || roundResolution.advanced || roundFinishing.current) return;
-    roundFinishing.current = true;
-    const { teamIndex } = roundResolution;
-    if (scores[teamIndex] >= config.winningScore) {
-      void gameAudio.play("game-win");
-      setWinner({
-        name: teamIndex === 0 ? config.teamOne : config.teamTwo,
-        score: scores[teamIndex],
-        team: teamIndex === 0 ? "one" : "two",
-      });
-      return;
-    }
-    if (!hasNextQuestion) {
-      roundFinishing.current = false;
-      setQuestionNavigationError("This is the final question in the game pack.");
-      return;
-    }
+    if (!feudGame || !roundResolution || roundResolution.advanced || isFinishingRound) return;
+    setIsFinishingRound(true);
+    setQuestionNavigationError("");
     try {
-      await roomClient.prepareNextFeudQuestion();
-      await roomClient.nextBuzzerPair();
-      dispatchQuestionNavigation({ type: "advance-award" });
-      dispatchQuestionNavigation({ type: "navigate", direction: 1 });
-      setRound((current) => current + 1);
-      setQuestionNavigationError("");
+      const snapshot = await onAction({
+        type: "finish-round",
+        questionIndex: feudGame.activeQuestionIndex,
+      });
+      if (snapshot.game?.kind === "feud" && snapshot.game.winnerTeam) {
+        void gameAudio.play("game-win");
+      }
     } catch (cause) {
-      roundFinishing.current = false;
       setQuestionNavigationError(
         cause instanceof Error ? cause.message : "Could not prepare the next question.",
       );
+    } finally {
+      setIsFinishingRound(false);
     }
   };
 
-  const changeScore = (teamIndex: TeamIndex, score: number) => {
-    setScores((current) => {
-      const nextScores: [number, number] = [current[0], current[1]];
-      nextScores[teamIndex] = score;
-      return nextScores;
-    });
+  const changeScore = (team: TeamId, score: number) => {
+    setQuestionNavigationError("");
+    void onAction({ type: "set-score", team, score })
+      .catch((cause) => setQuestionNavigationError(
+        cause instanceof Error ? cause.message : "Could not change that score.",
+      ));
   };
 
   const navigateQuestion = async (direction: -1 | 1) => {
+    if (!feudGame) return;
     const canNavigate = direction === -1 ? hasPreviousQuestion : hasNextQuestion;
     if (!canNavigate || pendingRoundAdvance || isNavigatingQuestion) return;
 
     setIsNavigatingQuestion(true);
     setQuestionNavigationError("");
     try {
-      if (direction === 1) {
-        await roomClient.prepareNextFeudQuestion();
-      } else {
-        await roomClient.endFeudQuestion();
-        await roomClient.resetBuzzer();
-      }
-      dispatchQuestionNavigation({ type: "navigate", direction });
+      await onAction({
+        type: "navigate-question",
+        questionIndex: feudGame.activeQuestionIndex,
+        direction,
+      });
     } catch (cause) {
       setQuestionNavigationError(
         cause instanceof Error ? cause.message : "Could not change questions.",
@@ -4087,8 +4114,8 @@ function Game({
       if (event.key >= "1" && event.key <= String(question.answers.length))
         revealAnswer(Number(event.key) - 1);
       if (event.key.toLowerCase() === "x") addStrike();
-      if (event.key.toLowerCase() === "a") awardRound(0);
-      if (event.key.toLowerCase() === "b") awardRound(1);
+      if (event.key.toLowerCase() === "a") awardRound("one");
+      if (event.key.toLowerCase() === "b") awardRound("two");
       if (event.key.toLowerCase() === "z" && !event.repeat) {
         if (room.buzzer.status === "armed") void roomClient.closeBuzzer();
         else void roomClient.armBuzzer();
@@ -4125,6 +4152,16 @@ function Game({
     );
   }
 
+  if (!feudGame) {
+    return (
+      <main className="game-shell">
+        <p className="form-error" role="alert">
+          The Family Feud board is unavailable. Reconnect to the room and try again.
+        </p>
+      </main>
+    );
+  }
+
   return (
     <main className="game-shell">
       <header className="game-topbar">
@@ -4148,9 +4185,9 @@ function Game({
       <section className="score-row">
         <ScoreCard
           team={config.teamOne}
-          score={scores[0]}
+          score={scores.one}
           accent="gold"
-          onChangeScore={(score) => changeScore(0, score)}
+          onChangeScore={(score) => changeScore("one", score)}
         />
         <div
           className="round-pot"
@@ -4161,9 +4198,9 @@ function Game({
         </div>
         <ScoreCard
           team={config.teamTwo}
-          score={scores[1]}
+          score={scores.two}
           accent="coral"
-          onChangeScore={(score) => changeScore(1, score)}
+          onChangeScore={(score) => changeScore("two", score)}
         />
       </section>
 
@@ -4275,10 +4312,7 @@ function Game({
           <div className="strike-actions">
             <button
               disabled={roundResolution !== null}
-              onClick={() => dispatchQuestionNavigation({
-                type: "set-strikes",
-                strikes: strikes - 1,
-              })}
+              onClick={() => setStrikes(strikes - 1)}
               aria-label="Remove a strike"
             >
               Undo
@@ -4293,7 +4327,7 @@ function Game({
             <>
               <span>
                 {roundResolution.points} points awarded to{" "}
-                {roundResolution.teamIndex === 0 ? config.teamOne : config.teamTwo}
+                {roundResolution.team === "one" ? config.teamOne : config.teamTwo}
               </span>
               {roundResolution.advanced ? (
                 <small>Completed round {roundResolution.round}</small>
@@ -4302,11 +4336,14 @@ function Game({
                   <button
                     onClick={() => void finishRound()}
                     disabled={
-                      scores[roundResolution.teamIndex] < config.winningScore
-                      && !hasNextQuestion
+                      isFinishingRound
+                      || (
+                        scores[roundResolution.team] < config.winningScore
+                        && !hasNextQuestion
+                      )
                     }
                   >
-                    {scores[roundResolution.teamIndex] >= config.winningScore
+                    {scores[roundResolution.team] >= config.winningScore
                       ? "Finish game"
                       : hasNextQuestion
                         ? "Next question"
@@ -4319,10 +4356,10 @@ function Game({
             <>
               <span>Award {roundPot} points</span>
               <div>
-                <button disabled={roundPot === 0} onClick={() => awardRound(0)}>
+                <button disabled={roundPot === 0} onClick={() => awardRound("one")}>
                   {config.teamOne} <kbd hidden={!moderatorShortcutsEnabled}>A</kbd>
                 </button>
-                <button disabled={roundPot === 0} onClick={() => awardRound(1)}>
+                <button disabled={roundPot === 0} onClick={() => awardRound("two")}>
                   {config.teamTwo} <kbd hidden={!moderatorShortcutsEnabled}>B</kbd>
                 </button>
               </div>
@@ -4924,6 +4961,12 @@ export default function App() {
       setRoom(snapshot);
     });
 
+  const feudAction = (command: FeudCommand) =>
+    roomClient.feudAction(command).then((snapshot) => {
+      setRoom(snapshot);
+      return snapshot;
+    });
+
   if (presentationCode) return <PresenterScreen roomCode={presentationCode} />;
 
   return (
@@ -5020,6 +5063,7 @@ export default function App() {
           room={room}
           moderatorShortcutsEnabled={moderatorShortcutsEnabled}
           onModeratorShortcutsEnabledChange={setModeratorShortcutsEnabled}
+          onAction={feudAction}
           onExit={leaveRoom}
           onReplay={() => prepareNextGame(false)}
           onChangeGame={() => prepareNextGame(true)}

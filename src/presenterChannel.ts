@@ -11,6 +11,7 @@ import type {
   SpinSolveView,
   TeamId,
 } from "./roomTypes";
+import { multiplierForRound } from "./feudScoring";
 
 interface PresentationBase {
   code: string;
@@ -77,15 +78,7 @@ export type PresentationState =
 interface FeudBoardInput {
   room: RoomSnapshot;
   config: FeudGameConfig;
-  round: number;
-  multiplier: number;
-  question: { prompt: string; answers: FeudAnswer[] };
-  revealed: number[];
-  strikes: number;
   wrongAnswerCueRevision: number;
-  scores: [number, number];
-  roundPot: number;
-  winner: { name: string; score: number } | null;
 }
 
 type PresentationMessage =
@@ -204,7 +197,17 @@ export function createLobbyPresentation(
 
 export function createFeudPresentation(
   input: FeudBoardInput,
-): FeudPresentation {
+): FeudPresentation | null {
+  if (input.room.game?.kind !== "feud") return null;
+  const game = input.room.game;
+  const question = input.config.pack.questions[game.activeQuestionIndex];
+  const displayRound = game.resolution?.round ?? game.round;
+  const winner = game.winnerTeam
+    ? {
+        name: game.winnerTeam === "one" ? input.config.teamOne : input.config.teamTwo,
+        score: game.scores[game.winnerTeam],
+      }
+    : null;
   const activePlayer = input.room.participants.find(
     (participant) => participant.id === input.room.playPass.activePlayerId,
   );
@@ -225,20 +228,20 @@ export function createFeudPresentation(
     timer: { ...input.room.timer },
     title: input.config.pack.title,
     winningScore: input.config.winningScore,
-    round: input.round,
-    multiplier: input.multiplier,
+    round: displayRound,
+    multiplier: multiplierForRound(displayRound),
     question: {
-      answers: input.question.answers.map(({ id, label, points }, index) =>
-        input.revealed.includes(index)
+      answers: question.answers.map(({ id, label, points }, index) =>
+        game.revealed.includes(index)
           ? { id, label, points }
           : { id, label: "", points: 0 },
       ),
     },
-    revealed: [...input.revealed],
-    strikes: input.strikes,
+    revealed: [...game.revealed],
+    strikes: game.strikes,
     wrongAnswerCueRevision: input.wrongAnswerCueRevision,
-    scores: [...input.scores],
-    roundPot: input.roundPot,
+    scores: [game.scores.one, game.scores.two],
+    roundPot: game.roundPot,
     buzzer: {
       status: input.room.buzzer.status,
       winner: input.room.buzzer.winner
@@ -265,7 +268,7 @@ export function createFeudPresentation(
         ? { name: nextTurnPlayer.name, avatarId: nextTurnPlayer.avatarId }
         : null,
     },
-    winner: input.winner ? { ...input.winner } : null,
+    winner,
   };
 }
 

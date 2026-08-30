@@ -69,6 +69,7 @@ Any new private field must begin in authoritative server state and be deliberate
 `server/index.ts` coordinates rooms and realtime commands. Game-specific state transitions belong in focused modules:
 
 - `server/spinSolve.ts` owns Spin & Solve rules and its public view.
+- `server/feud.ts` owns regular Family Feud rounds, board progress, scoring, and its public view.
 - `server/fastMoney.ts` owns Fast Money phases, scoring, timers, authorization, and role-specific views.
 - `src/feudTurnOrder.ts` owns Family Feud answering rotation.
 - `src/sharedTimer.ts` owns the room-wide timer state machine.
@@ -87,7 +88,7 @@ These modules should accept explicit state and actor inputs and return a result 
 | `src/presenterChannel.ts` | Audience-safe presenter projection and same-device transport |
 | `server/index.ts` | HTTP serving, room lifecycle, authorization, orchestration, and snapshot fan-out |
 | `server/roomDiagnostics.ts` | Credential-free structured connection and recovery diagnostics |
-| `server/fastMoney.ts`, `server/spinSolve.ts` | Server-owned game engines and views |
+| `server/feud.ts`, `server/fastMoney.ts`, `server/spinSolve.ts` | Server-owned game engines and views |
 | `server/*.test.ts`, `server/*.integration.ts` | Domain, authorization, privacy, reconnect, and realtime regression coverage |
 | `scripts/verify.mjs` | Complete local and PR verification entry point |
 

@@ -5,6 +5,7 @@ import type {
   BuzzerState,
   ClientToServerEvents,
   GameConfig,
+  FeudCommand,
   FastMoneyCommand,
   JoinRoomDetails,
   PlayPassChoice,
@@ -226,6 +227,14 @@ export class RoomClient {
   gameAction(command: SpinSolveCommand): Promise<RoomSnapshot> {
     return new Promise((resolve, reject) => {
       this.socket.emit("game:action", command, (result) =>
+        this.finish(result, resolve, reject),
+      );
+    });
+  }
+
+  feudAction(command: FeudCommand): Promise<RoomSnapshot> {
+    return new Promise((resolve, reject) => {
+      this.socket.emit("feud:action", command, (result) =>
         this.finish(result, resolve, reject),
       );
     });
